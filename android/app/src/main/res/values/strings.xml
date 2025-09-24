@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Flok</string>
+    <string name="title_activity_main">Flok</string>
+    <string name="package_name">dev.flok.app</string>
+    <string name="custom_url_scheme">dev.flok.app</string>
+</resources>

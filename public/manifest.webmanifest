@@ -1,0 +1,19 @@
+{
+  "name": "Flok",
+  "short_name": "Flok",
+  "description": "Planlæg og del begivenheder med venner og familie",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0ea5e9",
+  "theme_color": "#0ea5e9",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
+
