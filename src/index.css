@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* System font stack for a clean look */
+:root {
+  color-scheme: light dark;
+  --text-scale: 1;
+}
+html, body, #root {
+  height: 100%;
+}
+html { font-size: calc(16px * var(--text-scale)); }
+body {
+  margin: 0;
+  font-family: -apple-system, ui-sans-serif, system-ui, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  line-height: 1.5;
+}
+
+/* HIG: preserve image aspect ratios, avoid distortion */
+img, video {
+  max-width: 100%;
+  height: auto;
+}
+
+/* HIG: reduce visual noise on tap */
+a, button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Respect reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
