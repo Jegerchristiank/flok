@@ -39,7 +39,10 @@ export default function InviteDialog({
   const [shareUrl, setShareUrl] = useState<string>(() => shortInviteUrl(ev));
   const [shortBusy, setShortBusy] = useState(false);
   const [shortErr, setShortErr] = useState('');
-  useEffect(() => { setShareUrl(shortInviteUrl(ev)); setShortErr(''); }, [ev.id]);
+  useEffect(() => {
+    setShareUrl(shortInviteUrl(ev));
+    setShortErr('');
+  }, [ev]);
   const myFriends = friends.map((id) => db.users[id]).filter(Boolean);
   const togglePick = (id: string) => setPicked((arr) => (arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id]));
   const alreadyInvited = (uid: string) => (db.invites || []).some((i) => i.eventId === ev.id && i.to === uid && i.status !== 'declined');
@@ -98,7 +101,12 @@ export default function InviteDialog({
     );
     w.document.close();
     w.focus();
-    try { w.print(); } catch {}
+    try {
+      w.print();
+    } catch (err) {
+      console.warn('Kunne ikke åbne printdialog', err);
+      toast('Kunne ikke åbne printdialog', 'error');
+    }
   };
   return (
     <div
@@ -176,17 +184,23 @@ export default function InviteDialog({
                         body: new URLSearchParams({ url: long }).toString(),
                       });
                       if (res.ok) { const j: any = await res.json(); if (j?.result_url) return j.result_url as string; }
-                    } catch {}
+                    } catch (err) {
+                      console.warn('CleanURI shortener failed', err);
+                    }
                     // is.gd
                     try {
                       const res = await fetch(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(long)}`);
                       if (res.ok) { const t = (await res.text()).trim(); if (t.startsWith('http')) return t; }
-                    } catch {}
+                    } catch (err) {
+                      console.warn('is.gd shortener failed', err);
+                    }
                     // tinyurl
                     try {
                       const res = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(long)}`);
                       if (res.ok) { const t = (await res.text()).trim(); if (t.startsWith('http')) return t; }
-                    } catch {}
+                    } catch (err) {
+                      console.warn('TinyURL shortener failed', err);
+                    }
                     return null;
                   };
                   const short = await tryProviders();

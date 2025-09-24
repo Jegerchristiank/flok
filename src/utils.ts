@@ -173,9 +173,12 @@ export const encodeSnapshot = (ev: any) => {
     try {
       const z = compressToEncodedURIComponent(json);
       if (z && z.length > 0) return z;
-    } catch {}
+    } catch (err) {
+      console.warn('Kunne ikke komprimere invitation-snapshot', err);
+    }
     return base64UrlEncode(json);
-  } catch {
+  } catch (err) {
+    console.error('Kunne ikke oprette invitation-snapshot', err);
     return '';
   }
 };
@@ -184,11 +187,15 @@ export const decodeSnapshot = (code: string) => {
   try {
     const json = base64UrlDecode(code);
     if (json && json.trim().startsWith('{')) return JSON.parse(json);
-  } catch {}
+  } catch (err) {
+    console.warn('Kunne ikke afkode base64-snapshot', err);
+  }
   try {
     const json2 = decompressFromEncodedURIComponent(code) || '';
     if (json2 && json2.trim().startsWith('{')) return JSON.parse(json2);
-  } catch {}
+  } catch (err) {
+    console.warn('Kunne ikke afkode komprimeret snapshot', err);
+  }
   return null as any;
 };
 
@@ -198,7 +205,8 @@ export const shortInviteUrl = (ev: any) => {
     const origin = typeof location !== 'undefined' ? location.origin : '';
     const snap = encodeSnapshot(ev);
     return origin ? `${origin}/#s:${snap}` : `#s:${snap}`;
-  } catch {
+  } catch (err) {
+    console.error('Kunne ikke generere kort invitation-link', err);
     return '';
   }
 };
