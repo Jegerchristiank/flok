@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -57,7 +56,7 @@ import {
 //  • Kalender: ICS eksport samt Google Kalender link
 //  • Kortlinks: Apple Maps, Google Maps og kopi af adresse
 //  • Lys tilstand og mørk tilstand
-//  • Fake backend i localStorage samt seed data
+//  • Lokal persistence i browserens localStorage
 //  • Dansk tidszone og visning i brugerens lokale tidszone
 // ------------------------------------------------------------
  
@@ -71,8 +70,8 @@ import InviteDialog from './src/components/InviteDialog';
 import TempLoginDialog from './src/components/TempLoginDialog';
 import { confirm as askConfirm } from './src/ui/confirm';
 import { isAlreadyInvited, sendInvitesDb, acceptInviteDb, declineInviteDb } from './src/modules/invitations';
-import type { FlokDB } from './src/types';
-import { uid, nowIso, fmtDateTime, fmtDateTimeRange, toGoogleCalLink, toICS, encodeSnapshot, decodeSnapshot, shortInviteUrl, escapeICS } from './src/utils';
+import type { FlokDB, FlokEvent, FlokInvite, FlokUser, NotificationItem, Post, RSVP } from './src/types';
+import { uid, nowIso, fmtDateTime, fmtDateTimeRange, toGoogleCalLink, toICS, buildInviteUrl, escapeICS } from './src/utils';
 
 // Kort, læsevenlig invitationskode (unik pr. event)
 const INVITE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ'; // uden 0,O,1,I,L
@@ -94,9 +93,31 @@ const Dot = ({ color = "#4F46E5" }) => (
   <span
     style={{ background: color }}
     className="inline-block w-2.5 h-2.5 rounded-full align-middle"
-  />
+ />
 );
- 
+
+
+type EventFormState = {
+  title: string;
+  description: string;
+  address: string;
+  datetime: string;
+  endtime: string;
+  timezone: string;
+  isPublic: boolean;
+  password: string;
+  allowGuestPosts: boolean;
+  notifyOnHostPost: boolean;
+  maxGuests: string;
+  waitlist: boolean;
+  autoPromote: boolean;
+  rsvpPolicy: 'none' | 'deadline' | 'max' | 'both';
+  deadline: string;
+  cover: string;
+  repeat: 'none' | 'weekly' | 'monthly';
+  repeatCount: string;
+};
+
  
 const copy = async (text) => {
   try {
@@ -117,7 +138,7 @@ const compressImage = (file, maxWidth = 1600, quality = 0.82) =>
   new Promise((resolve) => {
     const img = new Image();
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = (e) => {
       img.onload = () => {
         const scale = Math.min(1, maxWidth / img.width);
         const w = Math.round(img.width * scale);
@@ -135,143 +156,57 @@ const compressImage = (file, maxWidth = 1600, quality = 0.82) =>
           quality
         );
       };
-      img.src = e.target.result;
+      img.src = typeof e.target?.result === 'string' ? e.target.result : '';
     };
     reader.readAsDataURL(file);
   });
  
-// Fake backend
+// Lokal persistent lagring
 const DB_KEY = "flok-db-v1";
- 
-function seedDB() {
-  const meId = uid();
-  const otherId = uid();
-  const hostId = uid();
-  const when = new Date();
-  when.setDate(when.getDate() + 14);
-  when.setHours(17, 30, 0, 0);
-  const exampleEventId = uid();
-  const exampleInvite = generateInviteToken({ events: {} });
-  /** @type {FlokDB} */
-  const db = {
-    users: {
-      [meId]: {
-        id: meId,
-        name: "Gæst Bruger",
-        email: "gaest@example.dk",
-        phone: "+4520202020",
-        isParent: true,
-        children: [
-          { id: uid(), name: "Alma", age: 7 },
-          { id: uid(), name: "Otto", age: 4 },
-        ],
-        friends: [],
-        friendRequestsIncoming: [],
-        friendRequestsOutgoing: [],
-        socials: {},
-        createdAt: nowIso(),
-      },
-      [otherId]: {
-        id: otherId,
-        name: "Sia Jæger",
-        email: "sia@example.dk",
-        phone: "+4540404040",
-        isParent: false,
-        children: [],
-        friends: [],
-        friendRequestsIncoming: [],
-        friendRequestsOutgoing: [],
-        socials: {},
-        createdAt: nowIso(),
-      },
-      [hostId]: {
-        id: hostId,
-        name: "Vært Vibe",
-        email: "vaert@example.dk",
-        phone: "+4588888888",
-        isParent: false,
-        children: [],
-        friends: [meId],
-        friendRequestsIncoming: [],
-        friendRequestsOutgoing: [],
-        socials: {},
-        createdAt: nowIso(),
-      },
-    },
-    friendships: [
-      { id: uid(), a: meId, b: hostId, createdAt: nowIso() },
-    ],
-    events: {
-      [exampleEventId]: {
-        id: exampleEventId,
-        title: "Sommerhygge i kolonihaven",
-        cover: "https://images.unsplash.com/photo-1529156069898-49953e39b3ac?q=80&w=1600&auto=format&fit=crop",
-        description: "Vi griller, spiller kroket og drikker saftevand. Medbring et tæppe og godt humør.",
-        address: "Haveselskabetsvej 3, 2000 Frederiksberg",
-        datetime: when.toISOString(),
-        endtime: new Date(when.getTime() + 2 * 60 * 60 * 1000).toISOString(),
-        timezone: "Europe/Copenhagen",
-        isPublic: true,
-        hasPassword: false,
-        password: "",
-        hostId,
-        cohosts: [],
-        allowGuestPosts: true,
-      notifyOnHostPost: true,
-      maxGuests: 8,
-      waitlist: true,
-      autoPromote: true,
-      rsvpPolicy: { type: "both", deadline: new Date(Date.now() + 7 * 864e5).toISOString() },
-        attendees: {
-          [hostId]: { status: "yes", by: hostId, at: nowIso(), withChildren: [] },
-        },
-      waitlistQueue: [],
-      posts: [
-        {
-          id: uid(),
-          by: hostId,
-            type: "host",
-            text: "Menu bliver pølser, majs og salat. Skriv hvis du har allergier.",
-            images: [],
-            pinned: true,
-            at: nowIso(),
-          },
-        ],
-        chat: [],
-        tempAccounts: {},
-        inviteToken: exampleInvite,
-        createdAt: nowIso(),
-        archivedAt: null,
-      },
-    },
+
+function createEmptyDB(): FlokDB {
+  return {
+    users: {},
+    friendships: [],
+    events: {},
     sessions: {},
     notifications: [],
     invites: [],
   };
-  return db;
 }
- 
-function readDB() {
-  const raw = localStorage.getItem(DB_KEY);
-  if (!raw) {
-    const db = seedDB();
-    localStorage.setItem(DB_KEY, JSON.stringify(db));
-    return db;
-  }
+
+function readDB(): FlokDB {
+  const raw = localStorage.getItem(DB_KEY);
+  if (!raw) {
+    const db = createEmptyDB();
+    localStorage.setItem(DB_KEY, JSON.stringify(db));
+    return db;
+  }
   try {
-    const db = JSON.parse(raw);
-    // Data retention: slet events færdige for over 90 dage siden
-    const ninety = 90 * 864e5;
-    const now = Date.now();
-    for (const ev of Object.values(db.events || {})) {
+    const parsed = JSON.parse(raw) as Partial<FlokDB>;
+    const base = createEmptyDB();
+    const db: FlokDB = {
+      ...base,
+      ...parsed,
+      users: { ...base.users, ...(parsed.users ?? {}) },
+      friendships: parsed.friendships ? [...parsed.friendships] : [],
+      events: { ...base.events, ...(parsed.events ?? {}) },
+      sessions: { ...base.sessions, ...(parsed.sessions ?? {}) },
+      notifications: parsed.notifications ? [...parsed.notifications] : [],
+      invites: parsed.invites ? [...parsed.invites] : [],
+    };
+    // Data retention: slet events færdige for over 90 dage siden
+    const ninety = 90 * 864e5;
+    const now = Date.now();
+    for (const ev of Object.values(db.events)) {
       try {
         const t = new Date(ev.datetime).getTime();
         if (now - t > ninety && !ev.archivedAt) ev.archivedAt = new Date(t + ninety).toISOString();
       } catch {}
     }
     // Notifikationer: sørg for read/type/owner/importance
-    const mapImportance = (t) => (t === 'rsvp' || t === 'friend' ? 'high' : 'low');
-    db.notifications = (db.notifications || []).map((n) => ({
+    const mapImportance = (t: NotificationItem['type']) => (t === 'rsvp' || t === 'friend' ? 'high' : 'low');
+    db.notifications = db.notifications.map((n) => ({
       id: n.id || uid(),
       text: n.text || '',
       at: n.at || nowIso(),
@@ -282,11 +217,11 @@ function readDB() {
     }));
     // Brugere: bagudkompatible felter
     try {
-      for (const uidKey of Object.keys(db.users || {})) {
+      for (const uidKey of Object.keys(db.users)) {
         const u = db.users[uidKey];
         u.friends = Array.isArray(u.friends) ? u.friends : [];
         // Fjern legacy 'follows'
-        if (u.follows) delete u.follows;
+        if ((u as any).follows) delete (u as any).follows;
         // Venneanmodninger
         u.friendRequestsIncoming = Array.isArray(u.friendRequestsIncoming) ? u.friendRequestsIncoming : [];
         u.friendRequestsOutgoing = Array.isArray(u.friendRequestsOutgoing) ? u.friendRequestsOutgoing : [];
@@ -295,7 +230,7 @@ function readDB() {
       }
     } catch {}
     // Invitationer: bagudkompatibel initialisering
-    db.invites = (db.invites || []).map((iv) => ({
+    db.invites = db.invites.map((iv) => ({
       id: iv.id || uid(),
       eventId: iv.eventId,
       from: iv.from,
@@ -305,27 +240,15 @@ function readDB() {
     }));
     return db;
   } catch {
-    const db = seedDB();
-    localStorage.setItem(DB_KEY, JSON.stringify(db));
-    return db;
-  }
+    const db = createEmptyDB();
+    localStorage.setItem(DB_KEY, JSON.stringify(db));
+    return db;
+  }
 }
- 
-function writeDB(db) {
-  localStorage.setItem(DB_KEY, JSON.stringify(db));
+
+function writeDB(db: FlokDB) {
+  localStorage.setItem(DB_KEY, JSON.stringify(db));
 }
- 
-// Typer via JSDoc
-/**
- * @typedef {{id:string,name:string,email:string,phone:string,isParent:boolean,children:Array<{id:string,name:string,age:number}>,friends:string[],friendRequestsIncoming:string[],friendRequestsOutgoing:string[],socials?:{website?:string,instagram?:string,facebook?:string,x?:string,tiktok?:string},createdAt:string}} FlokUser
- * @typedef {{id:string,a:string,b:string,createdAt:string}} FlokFriend
- * @typedef {{status:'yes'|'no'|'maybe', by:string, at:string, withChildren:Array<string>}} RSVP
- * @typedef {{id:string, by:string, type:'host'|'guest'|'poll', text:string, images:string[], pinned:boolean, at:string, likes?:string[], comments?:Array<{id:string, by:string, text:string, at:string, likes?:string[]}>, poll?:{question:string, options:Array<{id:string,text:string,votes:string[]}>, multi?:boolean}}} Post
- * @typedef {{[username:string]:{pin:string, createdAt:string, expiresAt:string, userId:string}}} TempAccounts
- * @typedef {{id:string,title:string,cover?:string,description:string,address:string,datetime:string,endtime?:string,timezone:string,isPublic:boolean,hasPassword:boolean,password?:string,hostId:string,cohosts?:string[],allowGuestPosts:boolean,notifyOnHostPost:boolean,maxGuests?:number,waitlist:boolean,autoPromote?:boolean,rsvpPolicy:{type:'deadline'|'max'|'both'|'none',deadline?:string},attendees:{[userId:string]:RSVP},waitlistQueue:string[],posts:Post[],chat:Array<{id:string,by:string,text:string,at:string}>,tempAccounts:TempAccounts,inviteToken:string,createdAt:string,archivedAt:string|null,seriesId?:string,seriesIndex?:number,seriesTotal?:number}} FlokEvent
- * @typedef {{id:string,eventId:string,from:string,to:string,at:string,status:'pending'|'accepted'|'declined'}} FlokInvite
- * @typedef {{users:{[id:string]:FlokUser},friendships:FlokFriend[],events:{[id:string]:FlokEvent},sessions:{[id:string]:{userId?:string,temp?:{eventId:string,username:string}}},notifications:Array<{id:string,text:string,at:string,read?:boolean,type?:string,owner?:string,importance?:'high'|'low'}>,invites:FlokInvite[]}} FlokDB
- */
  
 // Web Share helper
 const webShare = async (opts: { title?: string; text?: string; url?: string }) => {
@@ -340,15 +263,15 @@ const webShare = async (opts: { title?: string; text?: string; url?: string }) =
 
 // App
 export default function FlokApp() {
-  const [db, setDb] = useState(() => readDB());
-  const [sessionId, setSessionId] = useState(() => {
-    const s = Object.keys(db.sessions || {})[0] || uid();
-    if (!db.sessions[s]) db.sessions[s] = {};
-    writeDB(db);
-    return s;
-  });
-  const session = db.sessions[sessionId] || {}; // {userId, temp}
-  const me = session.userId ? db.users[session.userId] : null;
+  const [db, setDb] = useState<FlokDB>(() => readDB());
+  const [sessionId, setSessionId] = useState<string>(() => {
+    const first = Object.keys(db.sessions)[0] || uid();
+    if (!db.sessions[first]) db.sessions[first] = {};
+    writeDB(db);
+    return first;
+  });
+  const session: FlokDB['sessions'][string] = db.sessions[sessionId] ?? {};
+  const me = session.userId ? db.users[session.userId] ?? null : null;
   const [route, setRoute] = useState<{ name: string; id?: string }>(() => {
     // Deep link via hash `#event:<id>` / `#profile:<id>` eller search `?event=<id>`
     const hash = typeof location !== "undefined" ? location.hash : "";
@@ -388,103 +311,6 @@ export default function FlokApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route.name, (route as any).id]);
 
-  // If navigating to an event that isn't in the local fake DB,
-  // try to import a snapshot embedded in the link (for demo portability)
-  useEffect(() => {
-    // Kort-link variant: #s:<snapshot> eller ?s=<snapshot>
-    try {
-      const hash = typeof location !== "undefined" ? location.hash : "";
-      const mShort = /#s:([A-Za-z0-9_-]+)/i.exec(hash || "");
-      const params = typeof location !== "undefined" ? new URLSearchParams(location.search) : null;
-      const shortParam = params?.get('s');
-      const code = mShort?.[1] || shortParam;
-      if (code) {
-        const snap = decodeSnapshot(code);
-        if (snap) {
-          const id = snap.id || uid();
-          const exists = !!(db.events || {})[id];
-          if (!exists) {
-            const imported = {
-              id,
-              title: snap.title || "Begivenhed",
-              cover: snap.cover || "",
-              description: snap.description || "",
-              address: snap.address || "",
-              datetime: snap.datetime || new Date(Date.now() + 864e5).toISOString(),
-              endtime: snap.endtime || new Date(new Date(snap.datetime || Date.now() + 864e5).getTime() + 2 * 60 * 60 * 1000).toISOString(),
-              timezone: snap.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Copenhagen",
-              isPublic: !!snap.isPublic,
-              hasPassword: false,
-              password: "",
-              hostId: Object.keys(db.users)[0],
-              cohosts: [],
-              allowGuestPosts: true,
-              notifyOnHostPost: true,
-              maxGuests: undefined,
-              waitlist: true,
-              rsvpPolicy: { type: "none" },
-              attendees: {},
-              waitlistQueue: [],
-              posts: [],
-              chat: [],
-              tempAccounts: {},
-              inviteToken: generateInviteToken(db),
-              createdAt: nowIso(),
-              archivedAt: null,
-            };
-            const next = { ...db, events: { ...db.events, [id]: imported } };
-            save(next);
-          }
-          setRoute({ name: 'event', id });
-          if (typeof history !== 'undefined') history.replaceState(null, "", location.pathname);
-          return; // undgå at fortsætte andet importflow i dette tick
-        }
-      }
-    } catch {}
-
-    if (route.name === "event" && route.id && !(db.events || {})[route.id]) {
-      try {
-        const hash = typeof location !== "undefined" ? location.hash : "";
-        const m = /#event:([^;]+)(?:;snapshot:([A-Za-z0-9_-]+))?/i.exec(hash || "");
-        const snapStr = m?.[2] || new URLSearchParams(location.search).get("snapshot");
-        const snap = snapStr ? decodeSnapshot(snapStr) : null;
-        if (snap) {
-          const imported = {
-            id: route.id,
-            title: snap.title || "Begivenhed",
-            cover: snap.cover || "",
-            description: snap.description || "",
-            address: snap.address || "",
-            datetime: snap.datetime || new Date(Date.now() + 864e5).toISOString(),
-            endtime: snap.endtime || new Date(new Date(snap.datetime || Date.now() + 864e5).getTime() + 2 * 60 * 60 * 1000).toISOString(),
-            timezone: snap.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Copenhagen",
-            isPublic: !!snap.isPublic,
-            hasPassword: false,
-            password: "",
-            hostId: Object.keys(db.users)[0],
-            cohosts: [],
-            allowGuestPosts: true,
-            notifyOnHostPost: true,
-            maxGuests: undefined,
-            waitlist: true,
-            rsvpPolicy: { type: "none" },
-            attendees: {},
-            waitlistQueue: [],
-            posts: [],
-            chat: [],
-            tempAccounts: {},
-            inviteToken: generateInviteToken(db),
-            createdAt: nowIso(),
-            archivedAt: null,
-          };
-          const next = { ...db, events: { ...db.events, [imported.id]: imported } };
-          save(next);
-        }
-      } catch {}
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route.name, (route as any).id, db.events]);
- 
   // Notifikationstilladelse + feedback
   const askNotify = async () => {
     if (!("Notification" in window)) {
@@ -551,10 +377,10 @@ export default function FlokApp() {
   };
 
   // Gem DB (understøtter både objekt og updater-funktion)
-  const save = (nextOrFn) => {
+  const save = (nextOrFn: FlokDB | ((prev: FlokDB) => FlokDB)) => {
     if (typeof nextOrFn === 'function') {
       setDb((prev) => {
-        const next = nextOrFn(prev);
+        const next = (nextOrFn as (prev: FlokDB) => FlokDB)(prev);
         writeDB(next);
         return next;
       });
@@ -594,20 +420,26 @@ export default function FlokApp() {
  
   // Opret event
   const createEvent = (payload) => {
-		const id = uid();
-		const ev = {
-			id,
-			title: payload.title.trim() || "Ny begivenhed",
-			cover: payload.cover || "",
-			description: payload.description || "",
-			address: payload.address || "",
-			datetime: payload.datetime || new Date(Date.now() + 864e5).toISOString(),
-			endtime: payload.endtime || new Date(new Date(payload.datetime || Date.now() + 864e5).getTime() + 2 * 60 * 60 * 1000).toISOString(),
-			timezone: payload.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Copenhagen",
-			isPublic: payload.isPublic ?? true,
-			hasPassword: !!payload.password,
-			password: payload.password || "",
-      hostId: me?.id || Object.keys(db.users)[0],
+    if (!me?.id) {
+      toast('Log ind for at oprette begivenheder', 'error');
+      haptic('medium');
+      return { id: '' };
+    }
+    const ownerId = me.id;
+                const id = uid();
+                const ev = {
+                        id,
+                        title: payload.title.trim() || "Ny begivenhed",
+                        cover: payload.cover || "",
+                        description: payload.description || "",
+                        address: payload.address || "",
+                        datetime: payload.datetime || new Date(Date.now() + 864e5).toISOString(),
+                        endtime: payload.endtime || new Date(new Date(payload.datetime || Date.now() + 864e5).getTime() + 2 * 60 * 60 * 1000).toISOString(),
+                        timezone: payload.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Copenhagen",
+                        isPublic: payload.isPublic ?? true,
+                        hasPassword: !!payload.password,
+                        password: payload.password || "",
+      hostId: ownerId,
       cohosts: payload.cohosts || [],
       allowGuestPosts: payload.allowGuestPosts ?? true,
       notifyOnHostPost: payload.notifyOnHostPost ?? true,
@@ -894,25 +726,41 @@ export default function FlokApp() {
   };
  
   // Opslag
-  const addPost = async (eventId, text, files = [], type = "guest") => {
+  const addPost = async (
+    eventId: string,
+    text: string,
+    files: File[] = [],
+    type: Post['type'] = 'guest'
+  ) => {
     const ev = db.events[eventId];
     if (!ev) return { ok: false };
-  const images: any[] = [];
-    for (const f of files) {
+    const images: string[] = [];
+    for (const f of files) {
       if (f.size > 5 * 1024 * 1024) {
         const res = await compressImage(f);
-        images.push((res as any)?.dataUrl || "");
-      } else {
-        const reader = new FileReader();
-        const dataUrl = await new Promise((res) => {
-          reader.onload = () => res(reader.result);
-          reader.readAsDataURL(f);
-        });
-        images.push(dataUrl);
-      }
-    }
+        images.push((res as { dataUrl?: string } | undefined)?.dataUrl || "");
+      } else {
+        const reader = new FileReader();
+        const dataUrl = await new Promise<string>((resolve) => {
+          reader.onload = () =>
+            resolve(typeof reader.result === 'string' ? reader.result : '');
+          reader.readAsDataURL(f);
+        });
+        images.push(dataUrl);
+      }
+    }
     const by = actorIdForEvent(eventId) || "ukendt";
-    const post = { id: uid(), by, type, text, images, pinned: false, at: nowIso(), likes: [], comments: [] };
+    const post: Post = {
+      id: uid(),
+      by,
+      type,
+      text,
+      images,
+      pinned: false,
+      at: nowIso(),
+      likes: [],
+      comments: [],
+    };
     ev.posts.unshift(post);
     const next = { ...db, events: { ...db.events, [eventId]: { ...ev } } };
     save(next);
@@ -935,7 +783,7 @@ export default function FlokApp() {
     save(next);
   };
 
-  const addPoll = (eventId, question, options, multi = false) => {
+  const addPoll = (eventId: string, question: string, options: string[], multi = false) => {
     const ev = db.events[eventId];
     if (!ev) return { ok: false };
     const by = actorIdForEvent(eventId) || 'ukendt';
@@ -944,7 +792,18 @@ export default function FlokApp() {
       options: (options || []).map((t) => ({ id: uid(), text: t, votes: [] })),
       multi: !!multi,
     };
-    const post = { id: uid(), by, type: 'poll', text: '', images: [], pinned: false, at: nowIso(), likes: [], comments: [], poll };
+    const post: Post = {
+      id: uid(),
+      by,
+      type: 'poll',
+      text: '',
+      images: [],
+      pinned: false,
+      at: nowIso(),
+      likes: [],
+      comments: [],
+      poll,
+    };
     ev.posts.unshift(post);
     const next = { ...db, events: { ...db.events, [eventId]: { ...ev } } };
     save(next);
@@ -1083,15 +942,8 @@ export default function FlokApp() {
   };
  
   // Deling og links
-const inviteUrl = (ev) => {
-  const origin = typeof location !== "undefined" ? location.origin : "";
-  const base = origin ? `${origin}/#event:${ev.id}` : `#event:${ev.id}`;
-  const snap = encodeSnapshot(ev);
-  return `${base};snapshot:${snap}`;
-};
+const inviteUrl = (ev) => buildInviteUrl(ev);
 
-// Kortere link til deling: kun snapshot i hash (importeret fra utils)
- 
   // UI komponenter
   const Toolbar = () => (
     <div className="flex items-center justify-between gap-2 p-2">
@@ -1330,7 +1182,7 @@ const inviteUrl = (ev) => {
  
   // fmtDateTimeRange nu konsolideret fra utils
 
-  const MapEmbed = ({ address }) => {
+  const MapEmbed: React.FC<{ address?: string }> = ({ address }) => {
     try {
       if (!address) return null;
       const q = encodeURIComponent(address);
@@ -1343,9 +1195,9 @@ const inviteUrl = (ev) => {
     } catch { return null; }
   };
 
-  const EventCard = ({ ev, onOpen }) => {
+  const EventCard: React.FC<{ ev: FlokEvent; onOpen: () => void }> = ({ ev, onOpen }) => {
     const host = db.users[ev.hostId];
-		const yes = Object.values(ev.attendees).filter((a) => a.status === "yes").length;
+    const yes = Object.values(ev.attendees || {}).filter((a: RSVP) => a.status === "yes").length;
     const myStatus = me ? (ev.attendees || {})[me.id]?.status : undefined;
     return (
 		  <motion.div
@@ -1394,6 +1246,18 @@ const inviteUrl = (ev) => {
  
   const EventPage = ({ id }) => {
     const ev = db.events[id];
+    if (!ev) {
+      return (
+        <div className={`${card} p-6 max-w-xl mx-auto space-y-3 text-center`}>
+          <h3 className="text-xl font-semibold">Begivenheden blev ikke fundet</h3>
+          <p className="text-sm text-zinc-700 dark:text-zinc-300">Kontrollér linket eller invitationskoden, og prøv igen.</p>
+          <div className="flex justify-center gap-2">
+            <button className={btn} onClick={() => setRoute({ name: 'home' })}><ArrowLeft size={18} /> Tilbage</button>
+            <button className={btn} onClick={() => setRoute({ name: 'explore' })}><Search size={18} /> Udforsk</button>
+          </div>
+        </div>
+      );
+    }
     const host = db.users[ev.hostId];
     const [tab, setTab] = useState("samtale");
     const [showInvite, setShowInvite] = useState(false);
@@ -1547,7 +1411,13 @@ const inviteUrl = (ev) => {
                     {ev.waitlist && <span className={chip}>Venteliste</span>}
                   </div>
                   <div className="flex items-center gap-2 pt-1">
-                    <div>Vært <button className="font-semibold hover:underline" onClick={() => setRoute({ name: 'profile', id: host.id })}>{host?.name}</button></div>
+                    <div>
+                      Vært {host ? (
+                        <button className="font-semibold hover:underline" onClick={() => setRoute({ name: 'profile', id: host.id })}>{host.name}</button>
+                      ) : (
+                        <span className="font-semibold">Ukendt</span>
+                      )}
+                    </div>
                     {me && host && me.id !== host.id && (() => {
                       const st = friendStatus(me.id, host.id);
                     if (st === 'friends') return <button className={btn} onClick={async () => { if (await askConfirm({ title: 'Fjern ven', message: 'Er du sikker på, at du vil fjerne denne ven?', confirmText: 'Fjern', cancelText: 'Behold' })) { const before = { me: me.id, other: host.id }; unfriend(host.id); toastAction('Fjernet som ven', 'Fortryd', () => { const a = db.users[before.me]; const b = db.users[before.other]; if (a && b) { a.friends = [...(a.friends||[]), before.other]; b.friends = [...(b.friends||[]), before.me]; save({ ...db, users: { ...db.users, [a.id]: a, [b.id]: b }, friendships: [...(db.friendships||[]), { id: uid(), a: a.id, b: b.id, createdAt: nowIso() }] }); } }); } }}>Fjern ven</button>;
@@ -1844,28 +1714,43 @@ const inviteUrl = (ev) => {
     );
   };
 
-  const Conversation = ({ ev, isHost, canInteract }) => {
-    // Opslag
-    const [postText, setPostText] = useState("");
-    const [postFiles, setPostFiles] = useState([]);
-    // Afstemning
-    const [q, setQ] = useState("");
-    const [opts, setOpts] = useState(["", ""]);
-    const [multi, setMulti] = useState(false);
-    const [pollPing, setPollPing] = useState(0);
-    // Hurtig besked (chat)
-    const [msg, setMsg] = useState("");
+  type ConversationItem =
+    | { kind: 'post'; id: string; at: string; pinned: boolean; post: Post }
+    | { kind: 'chat'; id: string; at: string; chat: FlokEvent['chat'][number] };
 
-    const allItems = React.useMemo(() => {
-      const ps = (ev.posts || []).map((p:any) => ({ kind: 'post', id: p.id, at: p.at, pinned: !!p.pinned, post: p }));
-      const cs = (ev.chat || []).map((c:any) => ({ kind: 'chat', id: c.id, at: c.at, chat: c }));
-      return [...ps, ...cs].sort((a:any,b:any)=> {
-        if (a.kind==='post' && b.kind==='post') {
+  const Conversation: React.FC<{ ev: FlokEvent; isHost: boolean; canInteract: boolean }> = ({ ev, isHost, canInteract }) => {
+    // Opslag
+    const [postText, setPostText] = useState<string>("");
+    const [postFiles, setPostFiles] = useState<File[]>([]);
+    // Afstemning
+    const [q, setQ] = useState<string>("");
+    const [opts, setOpts] = useState<string[]>(["", ""]);
+    const [multi, setMulti] = useState<boolean>(false);
+    const [pollPing, setPollPing] = useState<number>(0);
+    // Hurtig besked (chat)
+    const [msg, setMsg] = useState<string>("");
+
+    const allItems = React.useMemo<ConversationItem[]>(() => {
+      const ps = (ev.posts || []).map((p) => ({
+        kind: 'post' as const,
+        id: p.id,
+        at: p.at,
+        pinned: !!p.pinned,
+        post: p,
+      }));
+      const cs = (ev.chat || []).map((c) => ({
+        kind: 'chat' as const,
+        id: c.id,
+        at: c.at,
+        chat: c,
+      }));
+      return [...ps, ...cs].sort((a, b) => {
+        if (a.kind === 'post' && b.kind === 'post') {
           if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
         }
         return +new Date(b.at) - +new Date(a.at);
       });
-    }, [ev.posts, ev.chat]);
+    }, [ev.posts, ev.chat, pollPing]);
 
     const sendMsg = () => {
       if (!canInteract) return;
@@ -2043,11 +1928,12 @@ const inviteUrl = (ev) => {
     );
   };
 
-  const GuestList = ({ ev, db, onPromote }) => {
-    const yes = Object.entries(ev.attendees).filter(([, a]) => a.status === "yes");
-    const no = Object.entries(ev.attendees).filter(([, a]) => a.status === "no");
-    const maybe = Object.entries(ev.attendees).filter(([, a]) => a.status === "maybe");
-    const nameOf = (id) => nameInEvent(ev, id);
+  const GuestList: React.FC<{ ev: FlokEvent; db: FlokDB; onPromote: (id: string) => void }> = ({ ev, db, onPromote }) => {
+    const entries = Object.entries(ev.attendees || {}) as Array<[string, RSVP]>;
+    const yes = entries.filter(([, a]) => a.status === "yes");
+    const no = entries.filter(([, a]) => a.status === "no");
+    const maybe = entries.filter(([, a]) => a.status === "maybe");
+    const nameOf = (id: string) => nameInEvent(ev, id);
     const canSeePhone = me && (me.id === ev.hostId || (ev.cohosts || []).includes(me.id));
     return (
       <div className="grid lg:grid-cols-3 gap-4">
@@ -2147,8 +2033,29 @@ const inviteUrl = (ev) => {
     );
   };
 
-  const Manage = ({ ev, db, onSave }) => {
-    const [form, setForm] = useState(() => ({
+  const Manage: React.FC<{ ev: FlokEvent; db: FlokDB; onSave: (ev: FlokEvent) => void }> = ({ ev, db, onSave }) => {
+    type ManageFormState = {
+      title: string;
+      cover: string;
+      description: string;
+      address: string;
+      datetime: string;
+      endtime: string;
+      timezone: string;
+      isPublic: boolean;
+      hasPassword: boolean;
+      password: string;
+      cohosts: string[];
+      allowGuestPosts: boolean;
+      notifyOnHostPost: boolean;
+      maxGuests: string;
+      waitlist: boolean;
+      autoPromote: boolean;
+      rsvpPolicy: 'none' | 'deadline' | 'max' | 'both';
+      deadline: string;
+    };
+
+    const [form, setForm] = useState<ManageFormState>(() => ({
       title: ev.title,
       cover: ev.cover || "",
       description: ev.description || "",
@@ -2162,23 +2069,25 @@ const inviteUrl = (ev) => {
       cohosts: ev.cohosts || [],
       allowGuestPosts: ev.allowGuestPosts,
       notifyOnHostPost: ev.notifyOnHostPost,
-      maxGuests: ev.maxGuests ?? "",
+      maxGuests: ev.maxGuests != null ? String(ev.maxGuests) : "",
       waitlist: ev.waitlist,
+      autoPromote: ev.autoPromote ?? false,
       rsvpPolicy: ev.rsvpPolicy?.type || "none",
       deadline: ev.rsvpPolicy?.deadline ? ev.rsvpPolicy.deadline.slice(0, 16) : "",
     }));
 
-    const update = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+    const update = <K extends keyof ManageFormState>(key: K, value: ManageFormState[K]) =>
+      setForm((f) => ({ ...f, [key]: value }));
     const [applySeries, setApplySeries] = useState(false);
 
-    const onPickCover = async (file) => {
+    const onPickCover = async (file?: File) => {
       if (!file) return;
-  const res = await compressImage(file, 1800, 0.85);
-  update("cover", (res as any)?.dataUrl || "");
+      const res = await compressImage(file, 1800, 0.85);
+      update("cover", (res as { dataUrl?: string } | undefined)?.dataUrl || "");
     };
 
     const apply = () => {
-      const next = {
+      const next: FlokEvent = {
         ...ev,
         title: form.title.trim() || "Begivenhed",
         cover: form.cover,
@@ -2195,7 +2104,8 @@ const inviteUrl = (ev) => {
         notifyOnHostPost: !!form.notifyOnHostPost,
         maxGuests: form.maxGuests === "" ? undefined : Number(form.maxGuests),
         waitlist: !!form.waitlist,
-        rsvpPolicy: (() => {
+        autoPromote: !!form.autoPromote,
+        rsvpPolicy: (() : FlokEvent['rsvpPolicy'] => {
           const t = form.rsvpPolicy;
           if (t === "none" || t === "max") return { type: t };
           if ((t === "deadline" || t === "both") && form.deadline)
@@ -2226,6 +2136,7 @@ const inviteUrl = (ev) => {
               notifyOnHostPost: next.notifyOnHostPost,
               maxGuests: next.maxGuests,
               waitlist: next.waitlist,
+              autoPromote: next.autoPromote,
               rsvpPolicy: next.rsvpPolicy,
             };
           }
@@ -2299,14 +2210,14 @@ const inviteUrl = (ev) => {
             <div className="space-y-1">
               <div className="text-sm font-medium">Medværter</div>
               <div className="flex flex-wrap gap-2">
-                {(form.cohosts || []).map((id) => (
+                {form.cohosts.map((id) => (
                   <span key={id} className={`${chip} inline-flex items-center gap-2`}>
                     {db.users[id]?.name || 'Ukendt'}
-                    <button className={btn} aria-label="Fjern medvært" onClick={()=> update('cohosts', (form.cohosts||[]).filter(x=> x!==id))}><X size={14} /></button>
+                    <button className={btn} aria-label="Fjern medvært" onClick={()=> update('cohosts', form.cohosts.filter((x)=> x!==id))}><X size={14} /></button>
                   </span>
                 ))}
               </div>
-              <CohostPicker users={db.users} exclude={[ev.hostId, ...(form.cohosts||[])]} onPick={(id)=> update('cohosts', [...(form.cohosts||[]), id])} />
+              <CohostPicker users={db.users} exclude={[ev.hostId, ...form.cohosts]} onPick={(id)=> update('cohosts', [...form.cohosts, id])} />
             </div>
           </div>
           <div className="space-y-3">
@@ -2373,7 +2284,7 @@ const inviteUrl = (ev) => {
             </div>
             <div className="space-y-1">
               <div className="text-sm font-medium">Svarregler</div>
-              <select className={`${card} px-3 py-2 bg-transparent w-full`} value={form.rsvpPolicy} onChange={(e) => update("rsvpPolicy", e.target.value)}>
+              <select className={`${card} px-3 py-2 bg-transparent w-full`} value={form.rsvpPolicy} onChange={(e) => update("rsvpPolicy", e.target.value as ManageFormState['rsvpPolicy'])}>
                 <option value="none">Ingen begrænsning</option>
                 <option value="deadline">Deadline</option>
                 <option value="max">Kun maks. antal</option>
@@ -2403,7 +2314,7 @@ const inviteUrl = (ev) => {
     );
   };
 
-  const Welcome = ({ me }) => {
+  const Welcome: React.FC<{ me: FlokUser | null }> = ({ me }) => {
     return (
       <div className={`${card} p-4 flex items-center justify-between`}>
         <div>
@@ -2420,12 +2331,12 @@ const inviteUrl = (ev) => {
     );
   };
 
-  const Friends = () => {
-    const [q, setQ] = useState("");
+  const Friends: React.FC = () => {
+    const [q, setQ] = useState<string>("");
     const [suggested, setSuggested] = useState<string[]>([]);
-    const users = Object.values(db.users);
+    const users = Object.values(db.users) as FlokUser[];
     const term = q.trim().toLowerCase();
-    const results = term
+    const results: FlokUser[] = term
       ? users.filter(
           (u) =>
             u.id !== me?.id &&
@@ -2434,7 +2345,7 @@ const inviteUrl = (ev) => {
               (u.phone || "").toLowerCase().includes(term))
         )
       : [];
-    const addFriend = (id) => befriend(id);
+    const addFriend = (id: string) => befriend(id);
     const importContacts = async () => {
       try {
         const nav: any = navigator as any;
@@ -2552,9 +2463,20 @@ const inviteUrl = (ev) => {
     );
   };
 
-  const CohostPicker = ({ users, exclude = [], onPick }) => {
-    const [q, setQ] = useState("");
-    const list = Object.values(users).filter((u)=> !exclude.includes(u.id) && (u.name.toLowerCase().includes(q.toLowerCase()) || u.email.toLowerCase().includes(q.toLowerCase()))).slice(0,6);
+  const CohostPicker: React.FC<{
+    users: Record<string, FlokUser>;
+    exclude?: string[];
+    onPick: (id: string) => void;
+  }> = ({ users, exclude = [], onPick }) => {
+    const [q, setQ] = useState<string>("");
+    const list = Object.values(users)
+      .filter(
+        (u) =>
+          !exclude.includes(u.id) &&
+          (u.name.toLowerCase().includes(q.toLowerCase()) ||
+            u.email.toLowerCase().includes(q.toLowerCase()))
+      )
+      .slice(0, 6);
     return (
       <div className={`${card} p-2`}> 
         <div className="flex items-center gap-2">
@@ -2571,30 +2493,48 @@ const inviteUrl = (ev) => {
     );
   };
 
-  const Notifications = () => {
+  const Notifications: React.FC = () => {
     const mine = currentActorId();
-    const all = (db.notifications || []).slice().sort((a,b)=> +new Date(b.at) - +new Date(a.at));
-    const list = all.filter((n)=> n.owner && n.owner === mine);
-    const high = list.filter((n)=> n.importance === 'high');
-    const low = list.filter((n)=> n.importance !== 'high');
+    const all = db.notifications.slice().sort((a, b) => +new Date(b.at) - +new Date(a.at));
+    const list = all.filter((n) => n.owner === mine);
+    const high = list.filter((n) => n.importance === 'high');
+    const low = list.filter((n) => n.importance !== 'high');
     const myUserId = me?.id;
-    const eventById = (id:string) => db.events[id];
-    const myInvites = myUserId ? (db.invites || []).filter((iv)=> iv.to === myUserId && iv.status === 'pending') : [];
+    const eventById = (id: string) => db.events[id];
+    const myInvites: FlokInvite[] = myUserId ? db.invites.filter((iv) => iv.to === myUserId && iv.status === 'pending') : [];
     const markAll = () => {
-      const next = { ...db, notifications: all.map((n)=> (n.owner===mine ? { ...n, read:true } : n)) } as any;
-      save(next);
+      const targetOwner = mine;
+      save((prev: FlokDB) => ({
+        ...prev,
+        notifications: prev.notifications.map((n) =>
+          n.owner === targetOwner ? { ...n, read: true } : n
+        ),
+      }));
     };
     const clearAll = async () => {
-      if (!(await askConfirm({ title: 'Ryd notifikationer', message: 'Vil du slette alle dine notifikationer?', confirmText: 'Ryd', cancelText: 'Annullér' }))) return;
+      if (
+        !(await askConfirm({
+          title: 'Ryd notifikationer',
+          message: 'Vil du slette alle dine notifikationer?',
+          confirmText: 'Ryd',
+          cancelText: 'Annullér',
+        }))
+      )
+        return;
+      const targetOwner = mine;
       const prevMine = list;
-      const next = { ...db, notifications: all.filter((n)=> n.owner !== mine) } as any;
-      save(next);
+      save((prev: FlokDB) => ({
+        ...prev,
+        notifications: prev.notifications.filter((n) => n.owner !== targetOwner),
+      }));
       toastAction('Notifikationer ryddet', 'Fortryd', () => {
-        const restored = { ...db, notifications: [...(db.notifications||[]), ...prevMine] } as any;
-        save(restored);
+        save((prev: FlokDB) => ({
+          ...prev,
+          notifications: [...prev.notifications, ...prevMine],
+        }));
       });
     };
-    const Section = ({ title, items }) => (
+    const Section: React.FC<{ title: string; items: NotificationItem[] }> = ({ title, items }) => (
       <div className="space-y-2">
         <div className="text-sm font-medium px-1">{title}</div>
         {items.length === 0 && <div className={`${card} p-3 text-sm`}>Ingen</div>}
@@ -2650,7 +2590,7 @@ const inviteUrl = (ev) => {
     );
   };
 
-  const NewEvent = () => {
+  const NewEvent: React.FC = () => {
     if (!me) {
       return (
         <div className={`${card} p-6 max-w-md mx-auto space-y-3`}>
@@ -2663,7 +2603,7 @@ const inviteUrl = (ev) => {
         </div>
       );
     }
-    const [f, setF] = useState({
+    const [f, setF] = useState<EventFormState>({
       title: "",
       description: "",
       address: "",
@@ -2676,18 +2616,20 @@ const inviteUrl = (ev) => {
       notifyOnHostPost: true,
       maxGuests: "",
       waitlist: false,
+      autoPromote: false,
       rsvpPolicy: "none",
       deadline: "",
       cover: "",
       repeat: "none",
       repeatCount: "1",
     });
-    const upd = (k, v) => setF((x) => ({ ...x, [k]: v }));
+    const upd = <K extends keyof EventFormState>(key: K, value: EventFormState[K]) =>
+      setF((x) => ({ ...x, [key]: value }));
 
-    const onPick = async (file) => {
+    const onPick = async (file?: File) => {
       if (!file) return;
-  const res = await compressImage(file, 1800, 0.85);
-  upd("cover", (res as any)?.dataUrl || "");
+      const res = await compressImage(file, 1800, 0.85);
+      upd("cover", (res as { dataUrl?: string } | undefined)?.dataUrl || "");
     };
 
     const submit = () => {
@@ -2711,6 +2653,7 @@ const inviteUrl = (ev) => {
         notifyOnHostPost: f.notifyOnHostPost,
         maxGuests: f.maxGuests === "" ? undefined : Number(f.maxGuests),
         waitlist: f.waitlist,
+        autoPromote: f.autoPromote,
         rsvpPolicy:
           f.rsvpPolicy === "none" || f.rsvpPolicy === "max"
             ? { type: f.rsvpPolicy }
@@ -2750,7 +2693,7 @@ const inviteUrl = (ev) => {
             <div className="space-y-1">
               <div className="text-sm font-medium">Gentagelser</div>
               <div className="flex items-center gap-2">
-                <select className={`${card} px-3 py-2 bg-transparent`} value={f.repeat} onChange={(e)=> upd('repeat', e.target.value)}>
+                <select className={`${card} px-3 py-2 bg-transparent`} value={f.repeat} onChange={(e)=> upd('repeat', e.target.value as EventFormState['repeat'])}>
                   <option value="none">Ingen</option>
                   <option value="weekly">Ugentligt</option>
                   <option value="monthly">Månedligt</option>
@@ -2794,7 +2737,7 @@ const inviteUrl = (ev) => {
             </div>
             <div className="space-y-1">
               <div className="text-sm font-medium">Svarregler</div>
-              <select className={`${card} px-3 py-2 bg-transparent w-full`} value={f.rsvpPolicy} onChange={(e) => upd("rsvpPolicy", e.target.value)}>
+              <select className={`${card} px-3 py-2 bg-transparent w-full`} value={f.rsvpPolicy} onChange={(e) => upd("rsvpPolicy", e.target.value as EventFormState['rsvpPolicy'])}>
                 <option value="none">Ingen begrænsning</option>
                 <option value="deadline">Deadline</option>
                 <option value="max">Kun maks. antal</option>
@@ -2813,7 +2756,7 @@ const inviteUrl = (ev) => {
     );
   };
 
-  const Profile = ({ id }) => {
+  const Profile: React.FC<{ id: string }> = ({ id }) => {
     const u = db.users[id];
     if (!u) return <div className={`${card} p-6`}>Bruger ikke fundet</div>;
     const mine = me?.id === u.id;
@@ -2840,13 +2783,14 @@ const inviteUrl = (ev) => {
       save(next);
       setEdit(false);
     };
-    const eventsByUser = Object.values(db.events).filter((e) => (e.hostId === u.id || (e.cohosts || []).includes(u.id)) && (e.isPublic || visibleToUser(e)) && !e.archivedAt)
+    const eventsByUser = (Object.values(db.events) as FlokEvent[])
+      .filter((event) => (event.hostId === u.id || (event.cohosts || []).includes(u.id)) && (event.isPublic || visibleToUser(event)) && !event.archivedAt)
       .sort((a, b) => +new Date(a.datetime) - +new Date(b.datetime));
     const st = me ? friendStatus(me.id, u.id) : 'none';
     const commonFriends = (() => {
       if (!me) return 0;
       const a = new Set(me.friends || []);
-      return (u.friends || []).filter((x)=> a.has(x)).length;
+      return (u.friends || []).filter((x: string) => a.has(x)).length;
     })();
     return (
       <div className="space-y-4">
@@ -2950,9 +2894,9 @@ const inviteUrl = (ev) => {
     );
   };
 
-  const KidsEditor = ({ user }) => {
-    const [name, setName] = useState("");
-    const [age, setAge] = useState("");
+  const KidsEditor: React.FC<{ user: FlokUser }> = ({ user }) => {
+    const [name, setName] = useState<string>("");
+    const [age, setAge] = useState<string>("");
     const add = () => {
       const nm = (name||'').trim();
       const ag = parseInt((age||'').replace(/[^0-9]/g, ''), 10);
@@ -2963,7 +2907,7 @@ const inviteUrl = (ev) => {
       setName(""); setAge("");
     };
     const remove = (cid: string) => {
-      const updated = { ...user, children: (user.children||[]).filter((c)=> c.id !== cid) };
+      const updated = { ...user, children: (user.children||[]).filter((c) => c.id !== cid) };
       const next = { ...db, users: { ...db.users, [user.id]: updated } };
       save(next);
     };
@@ -3026,7 +2970,7 @@ const inviteUrl = (ev) => {
           <>
             <input className={`${card} px-3 py-2 bg-transparent w-full`} placeholder="E-mail (eller tom)" aria-label="E-mail" value={email} onChange={(e) => setEmail(e.target.value)} />
             <input className={`${card} px-3 py-2 bg-transparent w-full`} placeholder="Telefon (eller tom)" aria-label="Telefon" value={phone} onChange={(e) => setPhone(e.target.value)} />
-            <input className={`${card} px-3 py-2 bg-transparent w-full`} type="password" placeholder="Kodeord (ignoreres i demo)" aria-label="Kodeord" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <input className={`${card} px-3 py-2 bg-transparent w-full`} type="password" placeholder="Kodeord" aria-label="Kodeord" value={password} onChange={(e) => setPassword(e.target.value)} />
             <button className={btnPrimary} onClick={doLogin}><LogIn size={18} /> Log ind</button>
           </>
         )}
@@ -3051,7 +2995,7 @@ const inviteUrl = (ev) => {
     );
   };
 
-  // Deltag via kode (event-id, invitekode eller snapshot)
+  // Deltag via kode (event-id eller invitekode)
   const JoinButton = () => {
     const [open, setOpen] = useState(false);
     const [val, setVal] = useState("");
@@ -3060,53 +3004,33 @@ const inviteUrl = (ev) => {
       if (!code) { toast('Angiv en kode', 'error'); haptic('medium'); return; }
       // Direkte event-id
       if ((db.events || {})[code]) { setRoute({ name: 'event', id: code }); setOpen(false); return; }
-      // Invitekode (inviteToken)
-      const byInvite = Object.values(db.events || {}).find((e: any) => e.inviteToken === code);
-      if (byInvite) { setRoute({ name: 'event', id: (byInvite as any).id }); setOpen(false); return; }
-      // Snapshot-kode, evt. med prefix s:
+      // Link der indeholder event-id (hash eller query)
       try {
-        const m = /^s:(.+)$/i.exec(code);
-        const raw = m ? m[1] : code;
-        const snap = decodeSnapshot(raw);
-        if (snap) {
-          const id = uid();
-          const imported: any = {
-            id,
-            title: snap.title || 'Begivenhed',
-            cover: snap.cover || '',
-            description: snap.description || '',
-            address: snap.address || '',
-            datetime: snap.datetime || new Date(Date.now() + 864e5).toISOString(),
-            endtime: snap.endtime || new Date(new Date(snap.datetime || Date.now() + 864e5).getTime() + 2 * 60 * 60 * 1000).toISOString(),
-            timezone: snap.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Copenhagen',
-            isPublic: !!snap.isPublic,
-            hasPassword: false,
-            password: '',
-            hostId: me?.id || Object.keys(db.users)[0],
-            cohosts: [],
-            allowGuestPosts: true,
-            notifyOnHostPost: true,
-            maxGuests: undefined,
-            waitlist: true,
-            rsvpPolicy: { type: 'none' },
-            attendees: {},
-            waitlistQueue: [],
-            posts: [],
-            chat: [],
-            tempAccounts: {},
-            inviteToken: generateInviteToken(db),
-            createdAt: nowIso(),
-            archivedAt: null,
-          };
-          const next = { ...db, events: { ...db.events, [id]: imported } } as any;
-          save(next);
-          setRoute({ name: 'event', id });
+        let shareId: string | undefined;
+        const hashMatch = /#event:([A-Za-z0-9_-]+)/i.exec(code);
+        if (hashMatch?.[1]) shareId = hashMatch[1];
+        if (!shareId && /https?:/i.test(code)) {
+          const url = new URL(code);
+          const hash = /#event:([A-Za-z0-9_-]+)/i.exec(url.hash || '');
+          if (hash?.[1]) shareId = hash[1];
+          if (!shareId) {
+            const queryId = url.searchParams.get('event');
+            if (queryId) shareId = queryId;
+          }
+        }
+        if (!shareId) {
+          const queryFallback = /[?&]event=([A-Za-z0-9_-]+)/i.exec(code);
+          if (queryFallback?.[1]) shareId = queryFallback[1];
+        }
+        if (shareId && (db.events || {})[shareId]) {
+          setRoute({ name: 'event', id: shareId });
           setOpen(false);
-          toast('Begivenhed importeret', 'success');
-          haptic('light');
           return;
         }
       } catch {}
+      // Invitekode (inviteToken)
+      const byInvite = (Object.values(db.events) as FlokEvent[]).find((e) => e.inviteToken === code);
+      if (byInvite) { setRoute({ name: 'event', id: byInvite.id }); setOpen(false); return; }
       toast('Ingen begivenhed fundet for koden', 'error');
       haptic('medium');
     };
@@ -3121,8 +3045,8 @@ const inviteUrl = (ev) => {
             <FocusTrap onEsc={() => setOpen(false)}>
               <div className={`${card} max-w-md w-full p-4 sm:p-6 space-y-3`}>
               <div className="text-lg font-semibold">Deltag via kode</div>
-                <input className={`${card} px-3 py-2 bg-transparent w-full`} placeholder="Indtast invitationskode eller kortlink (s:…)" value={val} onChange={(e)=> setVal(e.target.value)} />
-                <div className="text-xs text-zinc-600 dark:text-zinc-300">Tip: Få koden fra værten eller brug kortlinket.</div>
+                <input className={`${card} px-3 py-2 bg-transparent w-full`} placeholder="Indtast event-ID, invitationskode eller link" value={val} onChange={(e)=> setVal(e.target.value)} />
+                <div className="text-xs text-zinc-600 dark:text-zinc-300">Tip: Få koden fra værten eller brug linket fra invitationen.</div>
                 <div className="flex justify-end gap-2">
                   <button className={btn} onClick={() => setOpen(false)}>Luk</button>
                   <button className={btnPrimary} onClick={doJoin}><LogIn size={16} aria-hidden /> Gå til</button>
