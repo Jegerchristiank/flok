@@ -57,7 +57,7 @@ import {
 //  • Kalender: ICS eksport samt Google Kalender link
 //  • Kortlinks: Apple Maps, Google Maps og kopi af adresse
 //  • Lys tilstand og mørk tilstand
-//  • Fake backend i localStorage samt seed data
+//  • Lokal persistence i browserens localStorage
 //  • Dansk tidszone og visning i brugerens lokale tidszone
 // ------------------------------------------------------------
  
@@ -72,7 +72,7 @@ import TempLoginDialog from './src/components/TempLoginDialog';
 import { confirm as askConfirm } from './src/ui/confirm';
 import { isAlreadyInvited, sendInvitesDb, acceptInviteDb, declineInviteDb } from './src/modules/invitations';
 import type { FlokDB } from './src/types';
-import { uid, nowIso, fmtDateTime, fmtDateTimeRange, toGoogleCalLink, toICS, encodeSnapshot, decodeSnapshot, shortInviteUrl, escapeICS } from './src/utils';
+import { uid, nowIso, fmtDateTime, fmtDateTimeRange, toGoogleCalLink, toICS, buildInviteUrl, escapeICS } from './src/utils';
 
 // Kort, læsevenlig invitationskode (unik pr. event)
 const INVITE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ'; // uden 0,O,1,I,L
@@ -140,121 +140,24 @@ const compressImage = (file, maxWidth = 1600, quality = 0.82) =>
     reader.readAsDataURL(file);
   });
  
-// Fake backend
+// Lokal persistent lagring
 const DB_KEY = "flok-db-v1";
- 
-function seedDB() {
-  const meId = uid();
-  const otherId = uid();
-  const hostId = uid();
-  const when = new Date();
-  when.setDate(when.getDate() + 14);
-  when.setHours(17, 30, 0, 0);
-  const exampleEventId = uid();
-  const exampleInvite = generateInviteToken({ events: {} });
-  /** @type {FlokDB} */
-  const db = {
-    users: {
-      [meId]: {
-        id: meId,
-        name: "Gæst Bruger",
-        email: "gaest@example.dk",
-        phone: "+4520202020",
-        isParent: true,
-        children: [
-          { id: uid(), name: "Alma", age: 7 },
-          { id: uid(), name: "Otto", age: 4 },
-        ],
-        friends: [],
-        friendRequestsIncoming: [],
-        friendRequestsOutgoing: [],
-        socials: {},
-        createdAt: nowIso(),
-      },
-      [otherId]: {
-        id: otherId,
-        name: "Sia Jæger",
-        email: "sia@example.dk",
-        phone: "+4540404040",
-        isParent: false,
-        children: [],
-        friends: [],
-        friendRequestsIncoming: [],
-        friendRequestsOutgoing: [],
-        socials: {},
-        createdAt: nowIso(),
-      },
-      [hostId]: {
-        id: hostId,
-        name: "Vært Vibe",
-        email: "vaert@example.dk",
-        phone: "+4588888888",
-        isParent: false,
-        children: [],
-        friends: [meId],
-        friendRequestsIncoming: [],
-        friendRequestsOutgoing: [],
-        socials: {},
-        createdAt: nowIso(),
-      },
-    },
-    friendships: [
-      { id: uid(), a: meId, b: hostId, createdAt: nowIso() },
-    ],
-    events: {
-      [exampleEventId]: {
-        id: exampleEventId,
-        title: "Sommerhygge i kolonihaven",
-        cover: "https://images.unsplash.com/photo-1529156069898-49953e39b3ac?q=80&w=1600&auto=format&fit=crop",
-        description: "Vi griller, spiller kroket og drikker saftevand. Medbring et tæppe og godt humør.",
-        address: "Haveselskabetsvej 3, 2000 Frederiksberg",
-        datetime: when.toISOString(),
-        endtime: new Date(when.getTime() + 2 * 60 * 60 * 1000).toISOString(),
-        timezone: "Europe/Copenhagen",
-        isPublic: true,
-        hasPassword: false,
-        password: "",
-        hostId,
-        cohosts: [],
-        allowGuestPosts: true,
-      notifyOnHostPost: true,
-      maxGuests: 8,
-      waitlist: true,
-      autoPromote: true,
-      rsvpPolicy: { type: "both", deadline: new Date(Date.now() + 7 * 864e5).toISOString() },
-        attendees: {
-          [hostId]: { status: "yes", by: hostId, at: nowIso(), withChildren: [] },
-        },
-      waitlistQueue: [],
-      posts: [
-        {
-          id: uid(),
-          by: hostId,
-            type: "host",
-            text: "Menu bliver pølser, majs og salat. Skriv hvis du har allergier.",
-            images: [],
-            pinned: true,
-            at: nowIso(),
-          },
-        ],
-        chat: [],
-        tempAccounts: {},
-        inviteToken: exampleInvite,
-        createdAt: nowIso(),
-        archivedAt: null,
-      },
-    },
+
+function createEmptyDB(): FlokDB {
+  return {
+    users: {},
+    friendships: [],
+    events: {},
     sessions: {},
     notifications: [],
     invites: [],
   };
-  return db;
 }
- 
+
 function readDB() {
   const raw = localStorage.getItem(DB_KEY);
   if (!raw) {
-    const db = seedDB();
+    const db = createEmptyDB();
     localStorage.setItem(DB_KEY, JSON.stringify(db));
     return db;
   }
@@ -305,7 +208,7 @@ function readDB() {
     }));
     return db;
   } catch {
-    const db = seedDB();
+    const db = createEmptyDB();
     localStorage.setItem(DB_KEY, JSON.stringify(db));
     return db;
   }
@@ -388,103 +291,6 @@ export default function FlokApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route.name, (route as any).id]);
 
-  // If navigating to an event that isn't in the local fake DB,
-  // try to import a snapshot embedded in the link (for demo portability)
-  useEffect(() => {
-    // Kort-link variant: #s:<snapshot> eller ?s=<snapshot>
-    try {
-      const hash = typeof location !== "undefined" ? location.hash : "";
-      const mShort = /#s:([A-Za-z0-9_-]+)/i.exec(hash || "");
-      const params = typeof location !== "undefined" ? new URLSearchParams(location.search) : null;
-      const shortParam = params?.get('s');
-      const code = mShort?.[1] || shortParam;
-      if (code) {
-        const snap = decodeSnapshot(code);
-        if (snap) {
-          const id = snap.id || uid();
-          const exists = !!(db.events || {})[id];
-          if (!exists) {
-            const imported = {
-              id,
-              title: snap.title || "Begivenhed",
-              cover: snap.cover || "",
-              description: snap.description || "",
-              address: snap.address || "",
-              datetime: snap.datetime || new Date(Date.now() + 864e5).toISOString(),
-              endtime: snap.endtime || new Date(new Date(snap.datetime || Date.now() + 864e5).getTime() + 2 * 60 * 60 * 1000).toISOString(),
-              timezone: snap.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Copenhagen",
-              isPublic: !!snap.isPublic,
-              hasPassword: false,
-              password: "",
-              hostId: Object.keys(db.users)[0],
-              cohosts: [],
-              allowGuestPosts: true,
-              notifyOnHostPost: true,
-              maxGuests: undefined,
-              waitlist: true,
-              rsvpPolicy: { type: "none" },
-              attendees: {},
-              waitlistQueue: [],
-              posts: [],
-              chat: [],
-              tempAccounts: {},
-              inviteToken: generateInviteToken(db),
-              createdAt: nowIso(),
-              archivedAt: null,
-            };
-            const next = { ...db, events: { ...db.events, [id]: imported } };
-            save(next);
-          }
-          setRoute({ name: 'event', id });
-          if (typeof history !== 'undefined') history.replaceState(null, "", location.pathname);
-          return; // undgå at fortsætte andet importflow i dette tick
-        }
-      }
-    } catch {}
-
-    if (route.name === "event" && route.id && !(db.events || {})[route.id]) {
-      try {
-        const hash = typeof location !== "undefined" ? location.hash : "";
-        const m = /#event:([^;]+)(?:;snapshot:([A-Za-z0-9_-]+))?/i.exec(hash || "");
-        const snapStr = m?.[2] || new URLSearchParams(location.search).get("snapshot");
-        const snap = snapStr ? decodeSnapshot(snapStr) : null;
-        if (snap) {
-          const imported = {
-            id: route.id,
-            title: snap.title || "Begivenhed",
-            cover: snap.cover || "",
-            description: snap.description || "",
-            address: snap.address || "",
-            datetime: snap.datetime || new Date(Date.now() + 864e5).toISOString(),
-            endtime: snap.endtime || new Date(new Date(snap.datetime || Date.now() + 864e5).getTime() + 2 * 60 * 60 * 1000).toISOString(),
-            timezone: snap.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Copenhagen",
-            isPublic: !!snap.isPublic,
-            hasPassword: false,
-            password: "",
-            hostId: Object.keys(db.users)[0],
-            cohosts: [],
-            allowGuestPosts: true,
-            notifyOnHostPost: true,
-            maxGuests: undefined,
-            waitlist: true,
-            rsvpPolicy: { type: "none" },
-            attendees: {},
-            waitlistQueue: [],
-            posts: [],
-            chat: [],
-            tempAccounts: {},
-            inviteToken: generateInviteToken(db),
-            createdAt: nowIso(),
-            archivedAt: null,
-          };
-          const next = { ...db, events: { ...db.events, [imported.id]: imported } };
-          save(next);
-        }
-      } catch {}
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route.name, (route as any).id, db.events]);
- 
   // Notifikationstilladelse + feedback
   const askNotify = async () => {
     if (!("Notification" in window)) {
@@ -594,20 +400,26 @@ export default function FlokApp() {
  
   // Opret event
   const createEvent = (payload) => {
-		const id = uid();
-		const ev = {
-			id,
-			title: payload.title.trim() || "Ny begivenhed",
-			cover: payload.cover || "",
-			description: payload.description || "",
-			address: payload.address || "",
-			datetime: payload.datetime || new Date(Date.now() + 864e5).toISOString(),
-			endtime: payload.endtime || new Date(new Date(payload.datetime || Date.now() + 864e5).getTime() + 2 * 60 * 60 * 1000).toISOString(),
-			timezone: payload.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Copenhagen",
-			isPublic: payload.isPublic ?? true,
-			hasPassword: !!payload.password,
-			password: payload.password || "",
-      hostId: me?.id || Object.keys(db.users)[0],
+    if (!me?.id) {
+      toast('Log ind for at oprette begivenheder', 'error');
+      haptic('medium');
+      return { id: '' };
+    }
+    const ownerId = me.id;
+                const id = uid();
+                const ev = {
+                        id,
+                        title: payload.title.trim() || "Ny begivenhed",
+                        cover: payload.cover || "",
+                        description: payload.description || "",
+                        address: payload.address || "",
+                        datetime: payload.datetime || new Date(Date.now() + 864e5).toISOString(),
+                        endtime: payload.endtime || new Date(new Date(payload.datetime || Date.now() + 864e5).getTime() + 2 * 60 * 60 * 1000).toISOString(),
+                        timezone: payload.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Copenhagen",
+                        isPublic: payload.isPublic ?? true,
+                        hasPassword: !!payload.password,
+                        password: payload.password || "",
+      hostId: ownerId,
       cohosts: payload.cohosts || [],
       allowGuestPosts: payload.allowGuestPosts ?? true,
       notifyOnHostPost: payload.notifyOnHostPost ?? true,
@@ -1083,15 +895,8 @@ export default function FlokApp() {
   };
  
   // Deling og links
-const inviteUrl = (ev) => {
-  const origin = typeof location !== "undefined" ? location.origin : "";
-  const base = origin ? `${origin}/#event:${ev.id}` : `#event:${ev.id}`;
-  const snap = encodeSnapshot(ev);
-  return `${base};snapshot:${snap}`;
-};
+const inviteUrl = (ev) => buildInviteUrl(ev);
 
-// Kortere link til deling: kun snapshot i hash (importeret fra utils)
- 
   // UI komponenter
   const Toolbar = () => (
     <div className="flex items-center justify-between gap-2 p-2">
@@ -1394,6 +1199,18 @@ const inviteUrl = (ev) => {
  
   const EventPage = ({ id }) => {
     const ev = db.events[id];
+    if (!ev) {
+      return (
+        <div className={`${card} p-6 max-w-xl mx-auto space-y-3 text-center`}>
+          <h3 className="text-xl font-semibold">Begivenheden blev ikke fundet</h3>
+          <p className="text-sm text-zinc-700 dark:text-zinc-300">Kontrollér linket eller invitationskoden, og prøv igen.</p>
+          <div className="flex justify-center gap-2">
+            <button className={btn} onClick={() => setRoute({ name: 'home' })}><ArrowLeft size={18} /> Tilbage</button>
+            <button className={btn} onClick={() => setRoute({ name: 'explore' })}><Search size={18} /> Udforsk</button>
+          </div>
+        </div>
+      );
+    }
     const host = db.users[ev.hostId];
     const [tab, setTab] = useState("samtale");
     const [showInvite, setShowInvite] = useState(false);
@@ -1547,7 +1364,13 @@ const inviteUrl = (ev) => {
                     {ev.waitlist && <span className={chip}>Venteliste</span>}
                   </div>
                   <div className="flex items-center gap-2 pt-1">
-                    <div>Vært <button className="font-semibold hover:underline" onClick={() => setRoute({ name: 'profile', id: host.id })}>{host?.name}</button></div>
+                    <div>
+                      Vært {host ? (
+                        <button className="font-semibold hover:underline" onClick={() => setRoute({ name: 'profile', id: host.id })}>{host.name}</button>
+                      ) : (
+                        <span className="font-semibold">Ukendt</span>
+                      )}
+                    </div>
                     {me && host && me.id !== host.id && (() => {
                       const st = friendStatus(me.id, host.id);
                     if (st === 'friends') return <button className={btn} onClick={async () => { if (await askConfirm({ title: 'Fjern ven', message: 'Er du sikker på, at du vil fjerne denne ven?', confirmText: 'Fjern', cancelText: 'Behold' })) { const before = { me: me.id, other: host.id }; unfriend(host.id); toastAction('Fjernet som ven', 'Fortryd', () => { const a = db.users[before.me]; const b = db.users[before.other]; if (a && b) { a.friends = [...(a.friends||[]), before.other]; b.friends = [...(b.friends||[]), before.me]; save({ ...db, users: { ...db.users, [a.id]: a, [b.id]: b }, friendships: [...(db.friendships||[]), { id: uid(), a: a.id, b: b.id, createdAt: nowIso() }] }); } }); } }}>Fjern ven</button>;
@@ -3026,7 +2849,7 @@ const inviteUrl = (ev) => {
           <>
             <input className={`${card} px-3 py-2 bg-transparent w-full`} placeholder="E-mail (eller tom)" aria-label="E-mail" value={email} onChange={(e) => setEmail(e.target.value)} />
             <input className={`${card} px-3 py-2 bg-transparent w-full`} placeholder="Telefon (eller tom)" aria-label="Telefon" value={phone} onChange={(e) => setPhone(e.target.value)} />
-            <input className={`${card} px-3 py-2 bg-transparent w-full`} type="password" placeholder="Kodeord (ignoreres i demo)" aria-label="Kodeord" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <input className={`${card} px-3 py-2 bg-transparent w-full`} type="password" placeholder="Kodeord" aria-label="Kodeord" value={password} onChange={(e) => setPassword(e.target.value)} />
             <button className={btnPrimary} onClick={doLogin}><LogIn size={18} /> Log ind</button>
           </>
         )}
@@ -3051,7 +2874,7 @@ const inviteUrl = (ev) => {
     );
   };
 
-  // Deltag via kode (event-id, invitekode eller snapshot)
+  // Deltag via kode (event-id eller invitekode)
   const JoinButton = () => {
     const [open, setOpen] = useState(false);
     const [val, setVal] = useState("");
@@ -3060,53 +2883,33 @@ const inviteUrl = (ev) => {
       if (!code) { toast('Angiv en kode', 'error'); haptic('medium'); return; }
       // Direkte event-id
       if ((db.events || {})[code]) { setRoute({ name: 'event', id: code }); setOpen(false); return; }
-      // Invitekode (inviteToken)
-      const byInvite = Object.values(db.events || {}).find((e: any) => e.inviteToken === code);
-      if (byInvite) { setRoute({ name: 'event', id: (byInvite as any).id }); setOpen(false); return; }
-      // Snapshot-kode, evt. med prefix s:
+      // Link der indeholder event-id (hash eller query)
       try {
-        const m = /^s:(.+)$/i.exec(code);
-        const raw = m ? m[1] : code;
-        const snap = decodeSnapshot(raw);
-        if (snap) {
-          const id = uid();
-          const imported: any = {
-            id,
-            title: snap.title || 'Begivenhed',
-            cover: snap.cover || '',
-            description: snap.description || '',
-            address: snap.address || '',
-            datetime: snap.datetime || new Date(Date.now() + 864e5).toISOString(),
-            endtime: snap.endtime || new Date(new Date(snap.datetime || Date.now() + 864e5).getTime() + 2 * 60 * 60 * 1000).toISOString(),
-            timezone: snap.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Copenhagen',
-            isPublic: !!snap.isPublic,
-            hasPassword: false,
-            password: '',
-            hostId: me?.id || Object.keys(db.users)[0],
-            cohosts: [],
-            allowGuestPosts: true,
-            notifyOnHostPost: true,
-            maxGuests: undefined,
-            waitlist: true,
-            rsvpPolicy: { type: 'none' },
-            attendees: {},
-            waitlistQueue: [],
-            posts: [],
-            chat: [],
-            tempAccounts: {},
-            inviteToken: generateInviteToken(db),
-            createdAt: nowIso(),
-            archivedAt: null,
-          };
-          const next = { ...db, events: { ...db.events, [id]: imported } } as any;
-          save(next);
-          setRoute({ name: 'event', id });
+        let shareId: string | undefined;
+        const hashMatch = /#event:([A-Za-z0-9_-]+)/i.exec(code);
+        if (hashMatch?.[1]) shareId = hashMatch[1];
+        if (!shareId && /https?:/i.test(code)) {
+          const url = new URL(code);
+          const hash = /#event:([A-Za-z0-9_-]+)/i.exec(url.hash || '');
+          if (hash?.[1]) shareId = hash[1];
+          if (!shareId) {
+            const queryId = url.searchParams.get('event');
+            if (queryId) shareId = queryId;
+          }
+        }
+        if (!shareId) {
+          const queryFallback = /[?&]event=([A-Za-z0-9_-]+)/i.exec(code);
+          if (queryFallback?.[1]) shareId = queryFallback[1];
+        }
+        if (shareId && (db.events || {})[shareId]) {
+          setRoute({ name: 'event', id: shareId });
           setOpen(false);
-          toast('Begivenhed importeret', 'success');
-          haptic('light');
           return;
         }
       } catch {}
+      // Invitekode (inviteToken)
+      const byInvite = Object.values(db.events || {}).find((e: any) => e.inviteToken === code);
+      if (byInvite) { setRoute({ name: 'event', id: (byInvite as any).id }); setOpen(false); return; }
       toast('Ingen begivenhed fundet for koden', 'error');
       haptic('medium');
     };
@@ -3121,8 +2924,8 @@ const inviteUrl = (ev) => {
             <FocusTrap onEsc={() => setOpen(false)}>
               <div className={`${card} max-w-md w-full p-4 sm:p-6 space-y-3`}>
               <div className="text-lg font-semibold">Deltag via kode</div>
-                <input className={`${card} px-3 py-2 bg-transparent w-full`} placeholder="Indtast invitationskode eller kortlink (s:…)" value={val} onChange={(e)=> setVal(e.target.value)} />
-                <div className="text-xs text-zinc-600 dark:text-zinc-300">Tip: Få koden fra værten eller brug kortlinket.</div>
+                <input className={`${card} px-3 py-2 bg-transparent w-full`} placeholder="Indtast event-ID, invitationskode eller link" value={val} onChange={(e)=> setVal(e.target.value)} />
+                <div className="text-xs text-zinc-600 dark:text-zinc-300">Tip: Få koden fra værten eller brug linket fra invitationen.</div>
                 <div className="flex justify-end gap-2">
                   <button className={btn} onClick={() => setOpen(false)}>Luk</button>
                   <button className={btnPrimary} onClick={doJoin}><LogIn size={16} aria-hidden /> Gå til</button>

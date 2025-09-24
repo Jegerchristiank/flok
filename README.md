@@ -37,20 +37,20 @@ PWA hurtigt (lokal test)
 Nye forbedringer
 - Ny gæste‑landing: Enkel forside for ikke‑loggede brugere med tre tydelige knapper: “Opret begivenhed” (primær), “Log ind som gæst” og “Log ind”. Navigation skjules her for at holde fokus.
 - Samlet samtale: “Opslag” og “Afstemninger” er samlet i fanen “Samtale”. “Chat”-kategorien er fjernet.
- - Deltag via kode: Knap i topbaren åbner felt til event‑ID, invitekode eller snapshot (s:...). Finder event og navigerer dertil.
+- Deltag via kode: Knap i topbaren åbner felt til event‑ID, invitekode eller direkte link og navigerer brugeren til begivenheden.
  - Børn for forældre: Tilføj/administrér børn på din profil og vælg dem direkte i RSVP‑panelet, når du svarer.
 - Deling: Korte links bruges ved kopiering og deling. Ekstra knapper til Facebook‑sharer, Messenger (kræver `VITE_FB_APP_ID`), SMS og WhatsApp. “Kopiér besked” kopierer hele invitationsteksten i ét klik.
 - Facebook på kort: Lille “Del via Facebook”‑knap direkte på eventkortene.
 - QR‑kode: I delingsdialogen kan du generere en QR‑kode for kort link eller eventkode, med mulighed for download og print.
 - Interne invitationer: Send invitationer direkte til venner i appen. Invitationer kan accepteres fra Notifikationer.
-- Kort delingslink: Del med et kort hash-link af formen `#s:<snapshot>` (importeres automatisk ved åbning).
+- Delingslink: Kopiér et stabilt link til `#event:<id>` for hurtig deling.
 - Del/Share: Web Share API med fallback til e-mail, mens “Kopiér tekst” bevarer ren kopi.
 - Opslag: Fastgjorte opslag vises øverst.
 - Hjem: Skift mellem “Kommende” og “Tidligere” events.
 - Værtstyring: Duplikér, arkivér eller slet begivenheder. Bedre billedkomprimering.
 - Modulær UI: Tailwind-stilklasser i `src/ui/styles.ts`. Genbrugelige hjælpefunktioner i `src/utils.ts` (med tests).
  - Invitationer: Eget modul i `src/modules/invitations.ts` med enhedstests.
- - Base64 utils: Sikker URL‑safe encoding/decoding uden deprecated API’er.
+- Delingshjælpere: `buildInviteUrl` genererer stabile `#event:<id>`-links til deling.
  - Feedback og tilgængelighed: Ikke‑blokkerende toasts (`ToastProvider`) med `aria-live`, let haptik (vibration) samt reduceret motion ved `prefers-reduced-motion`.
  - A11y‑småtterier: `aria-label` på ikonknapper (tema, notifikationer, log ind/ud, opret). Interaktive chips (børnevalg) har nu minimum 44×44 pt trykområde.
  - Bekræftelser: Egen `ConfirmProvider` med tilpasset modal og “Fortryd” via toast‑handling for destruktive valg (fx slet begivenhed, fjern ven, ryd notifikationer).
@@ -58,14 +58,14 @@ Nye forbedringer
 - Kontrast: Sekundær tekst og ringfarver justeret for bedre WCAG‑kontrast i lys/mørk tilstand.
 
 Deling og links (hurtigt overblik)
-- Kort link: `shortInviteUrl(ev)` genererer `/#s:<snapshot>` som virker uden backend (snapshot importeres ved åbning).
+- Link: `buildInviteUrl(ev)` genererer `/#event:<id>` så gæster kan åbne den konkrete begivenhed.
 - Facebook: Del via sharer på kort og i dialog.
 - Messenger: Understøttes via Facebook Dialog Send (kræver `VITE_FB_APP_ID`).
 - SMS/WhatsApp: Hurtig deling med forudfyldt tekst.
 - QR: QR‑kode for kort link eller eventkode kan vises, downloades som PNG og printes.
 
 Bemærk
-- Data gemmes i browseren. Ryd localStorage-nøglen `flok-db-v1` for at nulstille demo-data.
+- Data gemmes i browseren. Ryd localStorage-nøglen `flok-db-v1` for at nulstille din lokale database.
 - Notifikationer kræver tilladelse i browseren.
 - `flok-app.tsx` er en stor, genereret komponent. Den er bevidst udeladt fra ESLint og har `// @ts-nocheck` indtil gradvis udtrækning til moduler er færdig.
 

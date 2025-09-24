@@ -5,7 +5,7 @@ import { card, btn, btnPrimary, chip } from '../ui/styles';
 import { toast } from '../ui/toast';
 import { haptic } from '../ui/feedback';
 import { FlokDB, FlokEvent, ID } from '../types';
-import { fmtDateTimeRange, shortInviteUrl } from '../utils';
+import { fmtDateTimeRange, buildInviteUrl } from '../utils';
 import QRCode from 'qrcode';
 
 type SendInvitesFn = (eventId: ID, toUserIds: ID[]) => { ok: boolean; count?: number; error?: string };
@@ -36,11 +36,11 @@ export default function InviteDialog({
   // Extra options are hidden by default so Facebook/Messenger don’t appear immediately
   const [showMoreShare, setShowMoreShare] = useState(false);
   // Short link state (with optional remote shorteners)
-  const [shareUrl, setShareUrl] = useState<string>(() => shortInviteUrl(ev));
+  const [shareUrl, setShareUrl] = useState<string>(() => buildInviteUrl(ev));
   const [shortBusy, setShortBusy] = useState(false);
   const [shortErr, setShortErr] = useState('');
   useEffect(() => {
-    setShareUrl(shortInviteUrl(ev));
+    setShareUrl(buildInviteUrl(ev));
     setShortErr('');
   }, [ev]);
   const myFriends = friends.map((id) => db.users[id]).filter(Boolean);
@@ -129,19 +129,19 @@ export default function InviteDialog({
             </button>
           </div>
           <div className="space-y-2">
-            <div className="text-sm">Delbart kort link til begivenheden</div>
+            <div className="text-sm">Delbart link til begivenheden</div>
             <div className="flex flex-wrap gap-2 items-center">
               <input
                 readOnly
                 className={`${card} flex-1 px-3 py-2 bg-transparent`}
                 value={shareUrl}
-                aria-label="Invitationslink (kort)"
+                aria-label="Invitationslink"
               />
               <button
                 className={btn}
-                aria-label="Kopiér kort link"
+                aria-label="Kopiér link"
                 onClick={() => copy(shareUrl).then(() => {
-                  toast('Kort link kopieret', 'success');
+                  toast('Link kopieret', 'success');
                   haptic('light');
                 })}
               >
@@ -149,7 +149,7 @@ export default function InviteDialog({
               </button>
               <button
                 className={btn}
-                aria-label="Del kort link"
+                aria-label="Del link"
                 onClick={async () => {
                   const url = shareUrl;
                   const ok = await webShare({ title: ev.title, text: ev.description, url });
@@ -174,7 +174,7 @@ export default function InviteDialog({
                 disabled={shortBusy}
                 onClick={async () => {
                   setShortBusy(true); setShortErr('');
-                  const long = shortInviteUrl(ev);
+                  const long = buildInviteUrl(ev);
                   const tryProviders = async (): Promise<string | null> => {
                     // CleanURI
                     try {
@@ -239,7 +239,7 @@ export default function InviteDialog({
                       checked={qrMode === 'link'}
                       onChange={() => setQrMode('link')}
                     />
-                    Kort link
+                    Link
                   </label>
                   <label className={chip}>
                     <input
@@ -260,10 +260,10 @@ export default function InviteDialog({
                   <div className="text-sm">Genererer QR…</div>
                 )}
                 <div className="text-xs text-zinc-600 dark:text-zinc-300 break-all max-w-full">
-                  {qrMode === 'link' ? shortInviteUrl(ev) : (ev.inviteToken || ev.id)}
+                  {qrMode === 'link' ? shareUrl : (ev.inviteToken || ev.id)}
                 </div>
                 <div className="text-xs text-zinc-600 dark:text-zinc-300 text-center max-w-sm">
-                  Kort link åbner begivenheden. Invitationskode kan indtastes under “Deltag med kode”.
+                  Linket åbner begivenheden. Invitationskode kan indtastes under “Deltag med kode”.
                 </div>
                 <div className="flex gap-2">
                   <button className={btn} onClick={downloadQR}>Download PNG</button>
@@ -277,7 +277,7 @@ export default function InviteDialog({
               className={btn}
               aria-label="Kopiér besked"
               onClick={() => {
-                const body = `Hej\n\nDu er inviteret til ${ev.title}.\n\nTid: ${fmtDateTimeRange(ev.datetime, ev.endtime, ev.timezone)}\nSted: ${ev.address}\n\nLæs mere og svar her: ${shortInviteUrl(ev)}\n\nKærlig hilsen\nVærten`;
+                const body = `Hej\n\nDu er inviteret til ${ev.title}.\n\nTid: ${fmtDateTimeRange(ev.datetime, ev.endtime, ev.timezone)}\nSted: ${ev.address}\n\nLæs mere og svar her: ${buildInviteUrl(ev)}\n\nKærlig hilsen\nVærten`;
                 navigator.clipboard.writeText(body).then(() => toast('Besked kopieret', 'success'));
               }}
             >
@@ -365,7 +365,7 @@ export default function InviteDialog({
 function InviteByContact({ ev, copy, webShare }: { ev: FlokEvent; copy: (t: string) => Promise<boolean>; webShare: (o: any) => Promise<boolean> }) {
   const [contact, setContact] = useState('');
   const makeText = () => {
-    const url = shortInviteUrl(ev);
+    const url = buildInviteUrl(ev);
     return `Hej ${contact || ''}\n\nDu er inviteret til ${ev.title}.\n\nTid: ${fmtDateTimeRange(ev.datetime, ev.endtime, ev.timezone)}\nSted: ${ev.address}\n\nLæs mere og svar her: ${url}\n\nKærlig hilsen\nVærten`;
   };
   return (
@@ -393,7 +393,7 @@ function InviteByContact({ ev, copy, webShare }: { ev: FlokEvent; copy: (t: stri
           aria-label="Del via system"
           onClick={async () => {
             const t = makeText();
-            const url = shortInviteUrl(ev);
+            const url = buildInviteUrl(ev);
             const ok = await webShare({ title: ev.title, text: t, url });
             if (!ok) {
               const subject = encodeURIComponent(`Invitation ${ev.title}`);
@@ -434,7 +434,7 @@ function InviteByContact({ ev, copy, webShare }: { ev: FlokEvent; copy: (t: stri
           className={btn}
           aria-label="Del via Facebook"
           onClick={() => {
-            const longUrl = shortInviteUrl(ev);
+            const longUrl = buildInviteUrl(ev);
             const url = encodeURIComponent(longUrl);
             const quote = encodeURIComponent(`Du er inviteret til ${ev.title}. Kom og vær med!`);
             const appId = (import.meta as any).env?.VITE_FB_APP_ID;
@@ -452,7 +452,7 @@ function InviteByContact({ ev, copy, webShare }: { ev: FlokEvent; copy: (t: stri
           aria-label="Del via Messenger"
           onClick={() => {
             const appId = (import.meta as any).env?.VITE_FB_APP_ID;
-            const link = encodeURIComponent(shortInviteUrl(ev));
+            const link = encodeURIComponent(buildInviteUrl(ev));
             const redirect = encodeURIComponent(window.location.origin);
             if (appId) {
               const href = `https://www.facebook.com/dialog/send?app_id=${appId}&link=${link}&redirect_uri=${redirect}`;
@@ -471,8 +471,8 @@ function InviteByContact({ ev, copy, webShare }: { ev: FlokEvent; copy: (t: stri
 
 function EmailComposer({ ev }: { ev: FlokEvent }) {
   const subject = `Invitation ${ev.title}`;
-  const shortUrl = shortInviteUrl(ev);
-  const body = `Hej\n\nDu er inviteret til ${ev.title}.\n\nTid: ${fmtDateTimeRange(ev.datetime, ev.endtime, ev.timezone)}\nSted: ${ev.address}\n\nLæs mere og svar her: ${shortUrl}\n\nKærlig hilsen\nVærten`;
+  const inviteLink = buildInviteUrl(ev);
+  const body = `Hej\n\nDu er inviteret til ${ev.title}.\n\nTid: ${fmtDateTimeRange(ev.datetime, ev.endtime, ev.timezone)}\nSted: ${ev.address}\n\nLæs mere og svar her: ${inviteLink}\n\nKærlig hilsen\nVærten`;
   const href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   return (
     <div className="flex items-center gap-2">

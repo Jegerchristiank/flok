@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning, as far as it makes sense for a demo.
 
+## [Unreleased]
+### Changed
+- Delingslinks bruger nu stabile `#event:<id>`-URL’er i stedet for midlertidige snapshot-koder.
+- Lokal database starter tom uden demo-data for at understøtte produktion.
+
 ## [0.2.0] - 2025-08-29
 ### Added
 - Internal invitations: Send per‑friend invites in-app; recipients accept via Notifikationer.

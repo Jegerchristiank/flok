@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { encodeSnapshot, decodeSnapshot, toICS, fmtDateTimeRange, shortInviteUrl } from './utils';
+import { toICS, fmtDateTimeRange, buildInviteUrl } from './utils';
 
 describe('utils', () => {
   const sample = {
@@ -14,21 +14,6 @@ describe('utils', () => {
     cover: '',
   } as any;
 
-  it('encodes and decodes snapshot', () => {
-    const s = encodeSnapshot(sample);
-    expect(typeof s).toBe('string');
-    const decoded = decodeSnapshot(s);
-    expect(decoded.title).toBe(sample.title);
-    expect(decoded.address).toBe(sample.address);
-  });
-
-  it('handles unicode safely in snapshot', () => {
-    const u = { ...sample, title: 'ÆØÅ – Café “Smørrebrød” 🍰' } as any;
-    const enc = encodeSnapshot(u);
-    const dec = decodeSnapshot(enc);
-    expect(dec.title).toBe(u.title);
-  });
-
   it('creates valid ICS content', () => {
     const ics = toICS(sample);
     expect(ics).toContain('BEGIN:VCALENDAR');
@@ -41,9 +26,9 @@ describe('utils', () => {
     expect(typeof s).toBe('string');
   });
 
-  it('creates short link from snapshot', () => {
-    // window.location mocked by jsdom in Vitest
-    const url = shortInviteUrl(sample);
-    expect(url).toContain('#s:');
+  it('builds invite url with event id', () => {
+    const url = buildInviteUrl(sample);
+    expect(url).toContain('#event:');
+    expect(url.endsWith('#event:e1')).toBe(true);
   });
 });

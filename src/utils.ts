@@ -42,64 +42,6 @@ export const fmtDateTimeRange = (startIso: string, endIso?: string, tz?: string)
 
 export const escapeICS = (s: string) => String(s).replace(/[\\;,\n]/g, (m) => ({ "\\": "\\\\", ";": "\\;", ",": "\\,", "\n": "\\n" } as any)[m]);
 
-// Safer Base64 (URL-safe) helpers without deprecated escape/unescape
-const base64Encode = (bytes: Uint8Array): string => {
-  // Prefer btoa if available (browser/jsdom), else Buffer in Node
-  try {
-    const chunk = 0x8000;
-    let binary = '';
-    for (let i = 0; i < bytes.length; i += chunk) {
-      binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-    }
-    if (typeof btoa === 'function') return btoa(binary);
-    // @ts-ignore Buffer may exist in Node
-    return Buffer.from(bytes).toString('base64');
-  } catch {
-    // @ts-ignore Buffer may exist in Node
-    return Buffer.from(bytes).toString('base64');
-  }
-};
-
-const base64Decode = (b64: string): Uint8Array => {
-  try {
-    if (typeof atob === 'function') {
-      const bin = atob(b64);
-      const out = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-      return out;
-    }
-    // @ts-ignore Buffer may exist in Node
-    return new Uint8Array(Buffer.from(b64, 'base64'));
-  } catch {
-    // @ts-ignore Buffer may exist in Node
-    return new Uint8Array(Buffer.from(b64, 'base64'));
-  }
-};
-
-const toUrlSafe = (b64: string) => b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-const fromUrlSafe = (s: string) => {
-  const norm = (s || '').replace(/-/g, '+').replace(/_/g, '/');
-  const pad = norm.length % 4 ? 4 - (norm.length % 4) : 0;
-  return norm + (pad ? '='.repeat(pad) : '');
-};
-
-export const base64UrlEncode = (text: string): string => {
-  const enc = new TextEncoder();
-  const bytes = enc.encode(text);
-  return toUrlSafe(base64Encode(bytes));
-};
-
-export const base64UrlDecode = (b64url: string): string => {
-  try {
-    const b64 = fromUrlSafe(b64url);
-    const bytes = base64Decode(b64);
-    const dec = new TextDecoder();
-    return dec.decode(bytes);
-  } catch {
-    return '';
-  }
-};
-
 export const toGoogleCalLink = (ev: any) => {
   const start = new Date(ev.datetime);
   const end = ev.endtime ? new Date(ev.endtime) : new Date(new Date(ev.datetime).getTime() + 2 * 60 * 60 * 1000);
@@ -154,59 +96,14 @@ export const toICS = (ev: any) => {
   return lines.join('\r\n');
 };
 
-// Portable invite snapshots for demo (works without a real backend)
-export const encodeSnapshot = (ev: any) => {
+export const buildInviteUrl = (ev: { id?: string | number } | null | undefined): string => {
+  const id = ev?.id != null ? String(ev.id) : '';
+  if (!id) return '';
   try {
-    const snap = {
-      id: ev.id,
-      title: ev.title,
-      description: ev.description,
-      address: ev.address,
-      datetime: ev.datetime,
-      endtime: ev.endtime,
-      timezone: ev.timezone,
-      isPublic: !!ev.isPublic,
-      cover: ev.cover || '',
-    };
-    const json = JSON.stringify(snap);
-    // Prefer compressed encoding for shorter links; fallback to base64url
-    try {
-      const z = compressToEncodedURIComponent(json);
-      if (z && z.length > 0) return z;
-    } catch (err) {
-      console.warn('Kunne ikke komprimere invitation-snapshot', err);
-    }
-    return base64UrlEncode(json);
-  } catch (err) {
-    console.error('Kunne ikke oprette invitation-snapshot', err);
-    return '';
-  }
-};
-export const decodeSnapshot = (code: string) => {
-  // Back-compat: try base64url first, then LZ compressed variant
-  try {
-    const json = base64UrlDecode(code);
-    if (json && json.trim().startsWith('{')) return JSON.parse(json);
-  } catch (err) {
-    console.warn('Kunne ikke afkode base64-snapshot', err);
-  }
-  try {
-    const json2 = decompressFromEncodedURIComponent(code) || '';
-    if (json2 && json2.trim().startsWith('{')) return JSON.parse(json2);
-  } catch (err) {
-    console.warn('Kunne ikke afkode komprimeret snapshot', err);
-  }
-  return null as any;
-};
-
-import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from 'lz-string';
-export const shortInviteUrl = (ev: any) => {
-  try {
-    const origin = typeof location !== 'undefined' ? location.origin : '';
-    const snap = encodeSnapshot(ev);
-    return origin ? `${origin}/#s:${snap}` : `#s:${snap}`;
-  } catch (err) {
-    console.error('Kunne ikke generere kort invitation-link', err);
-    return '';
+    const loc = (globalThis as any)?.location;
+    const origin = loc?.origin || '';
+    return origin ? `${origin}/#event:${id}` : `#event:${id}`;
+  } catch {
+    return `#event:${id}`;
   }
 };
