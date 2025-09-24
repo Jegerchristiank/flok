@@ -1,6 +1,6 @@
 # Contributing
 
-Tak fordi du vil hjælpe! Dette repo er en lille Vite + React app med Tailwind og en demo‑backend i `localStorage`.
+Tak fordi du vil hjælpe! Dette repo er en lille Vite + React app med Tailwind og lokal persistence i `localStorage`.
 
 ## Kom i gang
 - Node 18+
