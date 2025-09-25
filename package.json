@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview --port 4173 --strictPort",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint . --ext .ts,.tsx",
+    "lint": "eslint .",
     "format": "prettier -w .",
     "test": "vitest run",
     "cap:add:ios": "cap add ios",
