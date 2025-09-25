@@ -1,5 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import type {
+  FlokDB,
+  FlokEvent,
+  FlokInvite,
+  FlokUser,
+  NotificationItem,
+  Post,
+  RSVP,
+} from "./src/types";
 import {
   Calendar as CalendarIcon,
   Users,
@@ -175,6 +184,10 @@ function createEmptyDB(): FlokDB {
   };
 }
 
+function readDB(): FlokDB {
+  if (typeof localStorage === "undefined") return createEmptyDB();
+  const raw = localStorage.getItem(DB_KEY);
+  if (!raw) return createEmptyDB();
 
   try {
     const parsed = JSON.parse(raw) as Partial<FlokDB>;
@@ -199,15 +212,19 @@ function createEmptyDB(): FlokDB {
       } catch {}
     }
     // Notifikationer: sørg for read/type/owner/importance
-    const mapImportance = (t: NotificationItem['type']) => (t === 'rsvp' || t === 'friend' ? 'high' : 'low');
+    const mapImportance = (t: NotificationItem["type"]) =>
+      t === "rsvp" || t === "friend" ? "high" : "low";
     db.notifications = db.notifications.map((n) => ({
       id: n.id || uid(),
-      text: n.text || '',
+      text: n.text || "",
       at: n.at || nowIso(),
-      read: typeof n.read === 'boolean' ? n.read : false,
-      type: n.type || 'info',
+      read: typeof n.read === "boolean" ? n.read : false,
+      type: n.type || "info",
       owner: n.owner || undefined,
-      importance: (n.importance === 'high' || n.importance === 'low') ? n.importance : mapImportance(n.type || 'info'),
+      importance:
+        n.importance === "high" || n.importance === "low"
+          ? n.importance
+          : mapImportance(n.type || "info"),
     }));
     // Brugere: bagudkompatible felter
     try {
@@ -217,10 +234,14 @@ function createEmptyDB(): FlokDB {
         // Fjern legacy 'follows'
         if ((u as any).follows) delete (u as any).follows;
         // Venneanmodninger
-        u.friendRequestsIncoming = Array.isArray(u.friendRequestsIncoming) ? u.friendRequestsIncoming : [];
-        u.friendRequestsOutgoing = Array.isArray(u.friendRequestsOutgoing) ? u.friendRequestsOutgoing : [];
+        u.friendRequestsIncoming = Array.isArray(u.friendRequestsIncoming)
+          ? u.friendRequestsIncoming
+          : [];
+        u.friendRequestsOutgoing = Array.isArray(u.friendRequestsOutgoing)
+          ? u.friendRequestsOutgoing
+          : [];
         // Sociale links
-        u.socials = u.socials && typeof u.socials === 'object' ? u.socials : {};
+        u.socials = u.socials && typeof u.socials === "object" ? u.socials : {};
       }
     } catch {}
     // Invitationer: bagudkompatibel initialisering
@@ -230,11 +251,15 @@ function createEmptyDB(): FlokDB {
       from: iv.from,
       to: iv.to,
       at: iv.at || nowIso(),
-      status: (iv.status === 'pending' || iv.status === 'accepted' || iv.status === 'declined') ? iv.status : 'pending',
+      status:
+        iv.status === "pending" || iv.status === "accepted" || iv.status === "declined"
+          ? iv.status
+          : "pending",
     }));
     return db;
   } catch {
-
+    return createEmptyDB();
+  }
 }
 
 function writeDB(db: FlokDB) {
