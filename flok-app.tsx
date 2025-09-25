@@ -70,7 +70,7 @@ import InviteDialog from './src/components/InviteDialog';
 import TempLoginDialog from './src/components/TempLoginDialog';
 import { confirm as askConfirm } from './src/ui/confirm';
 import { isAlreadyInvited, sendInvitesDb, acceptInviteDb, declineInviteDb } from './src/modules/invitations';
-import type { FlokDB, FlokEvent, FlokInvite, FlokUser, NotificationItem, Post, RSVP } from './src/types';
+
 import { uid, nowIso, fmtDateTime, fmtDateTimeRange, toGoogleCalLink, toICS, buildInviteUrl, escapeICS } from './src/utils';
 
 // Kort, læsevenlig invitationskode (unik pr. event)
@@ -175,13 +175,7 @@ function createEmptyDB(): FlokDB {
   };
 }
 
-function readDB(): FlokDB {
-  const raw = localStorage.getItem(DB_KEY);
-  if (!raw) {
-    const db = createEmptyDB();
-    localStorage.setItem(DB_KEY, JSON.stringify(db));
-    return db;
-  }
+
   try {
     const parsed = JSON.parse(raw) as Partial<FlokDB>;
     const base = createEmptyDB();
@@ -240,10 +234,7 @@ function readDB(): FlokDB {
     }));
     return db;
   } catch {
-    const db = createEmptyDB();
-    localStorage.setItem(DB_KEY, JSON.stringify(db));
-    return db;
-  }
+
 }
 
 function writeDB(db: FlokDB) {
@@ -3029,8 +3020,7 @@ const inviteUrl = (ev) => buildInviteUrl(ev);
         }
       } catch {}
       // Invitekode (inviteToken)
-      const byInvite = (Object.values(db.events) as FlokEvent[]).find((e) => e.inviteToken === code);
-      if (byInvite) { setRoute({ name: 'event', id: byInvite.id }); setOpen(false); return; }
+
       toast('Ingen begivenhed fundet for koden', 'error');
       haptic('medium');
     };
